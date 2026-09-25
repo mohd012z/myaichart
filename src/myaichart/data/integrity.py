@@ -71,6 +71,7 @@ def verify_dataset(
     duplicate_count=0
     raw_tick_count=0
     hour_buckets=set()
+    coverage_hour_buckets=set()
     first_tick=None
     last_tick=None
     for tick in store.iter_all(symbol, dedupe=False):
@@ -82,7 +83,14 @@ def verify_dataset(
         else:
             seen.add(identity)
         ts=tick.source_timestamp_utc.astimezone(timezone.utc)
-        hour_buckets.add(ts.replace(minute=0,second=0,microsecond=0))
+        bucket=ts.replace(minute=0,second=0,microsecond=0)
+        hour_buckets.add(bucket)
+        if (
+            expected_start is None
+            or expected_end is None
+            or expected_start <= ts <= expected_end
+        ):
+            coverage_hour_buckets.add(bucket)
         first_tick = ts if first_tick is None or ts < first_tick else first_tick
         last_tick = ts if last_tick is None or ts > last_tick else last_tick
 
@@ -110,7 +118,7 @@ def verify_dataset(
 
     hour=coverage_start
     while hour is not None and coverage_end is not None and hour <= coverage_end:
-        if hour in hour_buckets:
+        if hour in coverage_hour_buckets:
             in_unexplained_gap=False
             hour += timedelta(hours=1)
             continue
