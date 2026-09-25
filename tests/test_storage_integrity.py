@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import json
 import lzma, struct
 from myaichart.models import NormalizedTick
 from myaichart.data.storage import RawTickStore
@@ -40,6 +41,21 @@ def test_integrity_report_contains_required_counts(tmp_path):
     from myaichart.data.integrity import verify_dataset
     report=verify_dataset(tmp_path)
     assert {'duplicate_count','data_gap_count','missing_hour_count','checksum_manifest'} <= report.keys()
+
+
+def test_write_metadata_without_integrity_builds_checksums_from_verified_report(tmp_path):
+    from myaichart.data.integrity import write_metadata
+
+    payloads = write_metadata(
+        tmp_path,
+        collection={'symbol': 'XAUUSD', 'tick_count': 0},
+        provenance={'source': 'dukascopy'},
+    )
+
+    assert 'integrity.json' in payloads
+    assert 'checksums.json' in payloads
+    assert payloads['checksums.json'] == payloads['integrity.json']['checksum_manifest']
+    assert json.loads((tmp_path/'metadata'/'collection.json').read_text())['symbol'] == 'XAUUSD'
 
 
 def test_repeated_raw_chunk_is_idempotent(tmp_path):
