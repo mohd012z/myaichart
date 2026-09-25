@@ -25,7 +25,7 @@ myaichart aggregate XAUUSD --timeframes M1 M5 M15 M30 H1 H4 D1 W1 MN1
 myaichart serve XAUUSD --timezone Asia/Kuala_Lumpur
 ```
 
-Historical raw ticks are excluded from normal git history. The workbench supports MID/BID/ASK candlesticks, realtime/replay messages, spread/volatility/liquidity context, official-event metadata, and research-only BABYLON overlays.
+Historical raw ticks are excluded from normal git history. The manual GitHub workflow supports an exact MYT smoke range or six calendar months, and raw ticks are an opt-in artifact. The workbench supports MID/BID/ASK candlesticks, realtime/replay messages, spread/volatility/liquidity context, BLS official-calendar metadata, and research-only BABYLON overlays.
 
 ## Realtime sources
 

@@ -51,14 +51,15 @@ class CollectionStats:
 
 
 class DukascopyHistoricalProvider:
-    def __init__(self, *, client: httpx.AsyncClient | None = None, attempts: int = 3):
+    def __init__(self, *, client: httpx.AsyncClient | None = None, attempts: int = 3, concurrency: int = 8):
         self._client = client
         self.attempts = attempts
+        self.concurrency = max(1, int(concurrency))
 
-    async def _fetch_hour(self, symbol: str, hour_utc: datetime):
+    async def _fetch_hour(self, symbol: str, hour_utc: datetime, client: httpx.AsyncClient | None = None):
         url = URL.format(symbol=symbol, year=hour_utc.year, month0=hour_utc.month - 1, day=hour_utc.day, hour=hour_utc.hour)
-        owns = self._client is None
-        client = self._client or httpx.AsyncClient(timeout=30)
+        owns = client is None and self._client is None
+        client = client or self._client or httpx.AsyncClient(timeout=30)
         try:
             for attempt in range(self.attempts):
                 try:
@@ -75,19 +76,35 @@ class DukascopyHistoricalProvider:
             if owns:
                 await client.aclose()
 
-    async def iter_hour_chunks(self, symbol: str, start_utc: datetime, end_utc: datetime):
-        start_utc = start_utc.astimezone(timezone.utc)
-        end_utc = end_utc.astimezone(timezone.utc)
+    async def _iter_hour_chunks_with_client(self, client, symbol: str, start_utc: datetime, end_utc: datetime):
+        hours=[]
         cur = start_utc.replace(minute=0, second=0, microsecond=0)
         end_hour = end_utc.replace(minute=0, second=0, microsecond=0)
         while cur <= end_hour:
-            ticks = await self._fetch_hour(symbol, cur)
-            filtered = [t for t in ticks if start_utc <= t.source_timestamp_utc <= end_utc]
-            if filtered:
-                yield filtered
+            hours.append(cur)
             cur += timedelta(hours=1)
+        for pos in range(0, len(hours), self.concurrency):
+            batch=hours[pos:pos+self.concurrency]
+            results=await asyncio.gather(*(self._fetch_hour(symbol, hour, client) for hour in batch))
+            for ticks in results:
+                filtered = [t for t in ticks if start_utc <= t.source_timestamp_utc <= end_utc]
+                if filtered:
+                    yield filtered
+
+    async def iter_hour_chunks(self, symbol: str, start_utc: datetime, end_utc: datetime):
+        start_utc = start_utc.astimezone(timezone.utc)
+        end_utc = end_utc.astimezone(timezone.utc)
+        if self._client is not None:
+            async for chunk in self._iter_hour_chunks_with_client(self._client, symbol, start_utc, end_utc):
+                yield chunk
+            return
+        async with httpx.AsyncClient(timeout=30) as client:
+            async for chunk in self._iter_hour_chunks_with_client(client, symbol, start_utc, end_utc):
+                yield chunk
 
     async def fetch_ticks(self, symbol: str, start_utc: datetime, end_utc: datetime):
+        # Compatibility helper for bounded windows. Six-month collection uses
+        # iter_hour_chunks() via collect_range() and never accumulates all ticks.
         out: list[NormalizedTick] = []
         async for chunk in self.iter_hour_chunks(symbol, start_utc, end_utc):
             out.extend(chunk)

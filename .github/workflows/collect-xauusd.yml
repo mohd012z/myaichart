@@ -2,17 +2,53 @@ name: Collect XAUUSD
 on:
   workflow_dispatch:
     inputs:
-      months: {description: 'Months of history', required: true, default: '6'}
-      timezone: {description: 'Display timezone', required: true, default: 'Asia/Kuala_Lumpur'}
+      months:
+        description: 'Calendar months of history when start/end are blank'
+        required: true
+        default: '6'
+      start_myt:
+        description: 'Optional MYT start, e.g. 2026-09-23 20:00'
+        required: false
+        default: ''
+      end_myt:
+        description: 'Optional MYT end, e.g. 2026-09-23 21:00'
+        required: false
+        default: ''
+      timezone:
+        description: 'Display timezone'
+        required: true
+        default: 'Asia/Kuala_Lumpur'
+      include_raw:
+        description: 'Upload raw tick files as a separate artifact'
+        required: false
+        type: boolean
+        default: false
 jobs:
   collect:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
+        with:
+          python-version: '3.12'
       - run: pip install -e '.[test,parquet]'
-      - run: myaichart collect XAUUSD --months ${{ inputs.months }}
+      - name: Collect requested range
+        shell: bash
+        env:
+          START_MYT: ${{ inputs.start_myt }}
+          END_MYT: ${{ inputs.end_myt }}
+          MONTHS: ${{ inputs.months }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$START_MYT" || -n "$END_MYT" ]]; then
+            if [[ -z "$START_MYT" || -z "$END_MYT" ]]; then
+              echo 'Both start_myt and end_myt are required for an explicit range.' >&2
+              exit 2
+            fi
+            myaichart collect XAUUSD --from "$START_MYT" --to "$END_MYT"
+          else
+            myaichart collect XAUUSD --months "$MONTHS"
+          fi
       - run: myaichart verify XAUUSD
       - run: myaichart aggregate XAUUSD --timeframes M1 M5 M15 M30 H1 H4 D1 W1 MN1
       - run: myaichart events sync
@@ -24,4 +60,12 @@ jobs:
           path: |
             data/metadata
             data/processed
+            data/events
+            data/effects
           if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.include_raw }}
+        with:
+          name: xauusd-raw-ticks
+          path: data/raw
+          if-no-files-found: error

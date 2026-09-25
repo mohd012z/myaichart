@@ -28,3 +28,21 @@ def test_source_session_daily_uses_supplied_offset():
     dt = datetime(2026, 9, 25, 3, 0, tzinfo=timezone.utc)
     start, _ = bucket_bounds(dt, 'D1', BoundaryProfile.SOURCE_SESSION, source_offset_minutes=120)
     assert start.isoformat() == '2026-09-24T22:00:00+00:00'
+
+
+def test_cli_six_month_range_uses_calendar_months_not_180_days():
+    from argparse import Namespace
+    from myaichart.cli import _range
+    args=Namespace(from_time=None,to_time='2026-09-25 18:00',months=6)
+    start,end=_range(args)
+    assert end.isoformat() == '2026-09-25T10:00:00+00:00'
+    assert start.isoformat() == '2026-03-25T10:00:00+00:00'
+
+
+def test_cli_explicit_aware_timestamp_preserves_its_offset():
+    from argparse import Namespace
+    from myaichart.cli import _range
+    args=Namespace(from_time='2026-09-25T10:00:00+00:00',to_time='2026-09-25T11:00:00+00:00',months=6)
+    start,end=_range(args)
+    assert start.isoformat() == '2026-09-25T10:00:00+00:00'
+    assert end.isoformat() == '2026-09-25T11:00:00+00:00'

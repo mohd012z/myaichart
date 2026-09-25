@@ -18,9 +18,11 @@ class EventFeatures:
 
 
 def _price_at(candles, target):
-    before=[c for c in candles if c.time_open_utc<=target]
+    def eligible_time(candle):
+        return getattr(candle, 'time_close_utc', candle.time_open_utc)
+    before=[c for c in candles if eligible_time(c)<=target]
     if not before: return None
-    return max(before,key=lambda c:c.time_open_utc).mid_close
+    return max(before,key=eligible_time).mid_close
 
 
 def _ret(p0,p1):
@@ -52,3 +54,21 @@ def select_controls(event,candidates,max_controls=5):
     eligible=[c for c in candidates if c.get('weekday')==wd and not c.get('has_equivalent_event',False)]
     eligible.sort(key=lambda c:abs(c.get('minute_of_day',minute)-minute))
     return eligible[:max_controls]
+
+
+def build_effect_dataset(events, candles, *, as_of):
+    """Build no-lookahead event rows at a single observation time."""
+    ordered=sorted(list(candles), key=lambda c:c.time_open_utc)
+    return [build_event_features(event, ordered, as_of=as_of) for event in sorted(events,key=lambda e:e.scheduled_time_utc)]
+
+
+def write_effect_dataset(path, rows):
+    from dataclasses import asdict
+    import json
+    from pathlib import Path
+    path=Path(path)
+    path.parent.mkdir(parents=True,exist_ok=True)
+    with path.open('w',encoding='utf-8') as fh:
+        for row in rows:
+            fh.write(json.dumps(asdict(row),separators=(',',':'))+'\n')
+    return path
