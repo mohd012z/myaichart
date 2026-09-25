@@ -40,3 +40,69 @@ def test_integrity_report_contains_required_counts(tmp_path):
     from myaichart.data.integrity import verify_dataset
     report=verify_dataset(tmp_path)
     assert {'duplicate_count','data_gap_count','missing_hour_count','checksum_manifest'} <= report.keys()
+
+
+def test_repeated_raw_chunk_is_idempotent(tmp_path):
+    store = RawTickStore(tmp_path)
+    tick = NormalizedTick(
+        symbol='XAUUSD', source='fixture', source_record_id='same',
+        source_timestamp_utc=datetime(2026,9,25,8,tzinfo=timezone.utc),
+        received_timestamp_utc=datetime(2026,9,25,8,tzinfo=timezone.utc),
+        bid=3762.5, ask=3762.6,
+    )
+    store.append_chunk([tick])
+    store.append_chunk([tick])
+    got = list(store.iter_all('XAUUSD'))
+    assert len(got) == 1
+    assert got[0].source_record_id == 'same'
+
+
+def test_verify_dataset_counts_ticks_through_store_api(tmp_path):
+    store = RawTickStore(tmp_path)
+    ticks = [
+        NormalizedTick(
+            symbol='XAUUSD', source='fixture', source_record_id=f'r{i}',
+            source_timestamp_utc=datetime(2026,9,25,8,0,i,tzinfo=timezone.utc),
+            received_timestamp_utc=datetime(2026,9,25,8,0,i,tzinfo=timezone.utc),
+            bid=3762.5+i*.01, ask=3762.6+i*.01,
+        ) for i in range(3)
+    ]
+    store.append_chunk(ticks)
+    from myaichart.data.integrity import verify_dataset
+    report = verify_dataset(tmp_path, 'XAUUSD')
+    assert report['raw_tick_count'] == 3
+
+
+def test_candle_store_writes_and_reads_processed_bars(tmp_path):
+    from datetime import timedelta
+    from myaichart.models import Candle, CandleState, BoundaryProfile
+    from myaichart.data.candles import CandleStore
+    ts=datetime(2026,9,25,7,40,tzinfo=timezone.utc)
+    candle=Candle(symbol='XAUUSD',timeframe='M1',boundary_profile=BoundaryProfile.MYT_CALENDAR,
+        time_open_utc=ts,time_close_utc=ts+timedelta(minutes=1),state=CandleState.FINAL,
+        bid_open=10,bid_high=11,bid_low=9,bid_close=10.5,
+        ask_open=10.2,ask_high=11.2,ask_low=9.2,ask_close=10.7,
+        mid_open=10.1,mid_high=11.1,mid_low=9.1,mid_close=10.6,
+        tick_count=4,quote_change_count=3)
+    store=CandleStore(tmp_path)
+    path=store.write('XAUUSD','M1',[candle])
+    assert path.exists()
+    got=list(store.read('XAUUSD','M1'))
+    assert got==[candle]
+
+
+def test_cli_aggregate_writes_processed_candles(tmp_path):
+    from myaichart.cli import main
+    store=RawTickStore(tmp_path)
+    ticks=[
+        NormalizedTick(symbol='XAUUSD',source='fixture',source_record_id='a',
+            source_timestamp_utc=datetime(2026,9,25,8,0,1,tzinfo=timezone.utc),
+            received_timestamp_utc=datetime(2026,9,25,8,0,1,tzinfo=timezone.utc),bid=10,ask=10.2),
+        NormalizedTick(symbol='XAUUSD',source='fixture',source_record_id='b',
+            source_timestamp_utc=datetime(2026,9,25,8,1,1,tzinfo=timezone.utc),
+            received_timestamp_utc=datetime(2026,9,25,8,1,1,tzinfo=timezone.utc),bid=11,ask=11.2),
+    ]
+    store.append_chunk(ticks)
+    assert main(['--data-dir',str(tmp_path),'aggregate','XAUUSD','--timeframes','M1','M5']) == 0
+    processed=list((tmp_path/'processed').glob('xauusd_m1.*'))
+    assert len(processed)==1

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
+from typing import Iterator
 from myaichart.models import NormalizedTick
 
 try:
@@ -14,10 +16,11 @@ except Exception:
 
 
 class RawTickStore:
-    """Append-only raw tick store.
+    """Immutable, idempotent raw tick store.
 
-    Parquet is used when pyarrow is installed. Offline/minimal installations
-    use newline-delimited JSON without changing the public API.
+    Each chunk name is content-addressed from source identities. Replaying the
+    exact same source chunk is therefore a no-op instead of a duplicate write.
+    Parquet is preferred when available; JSONL is the offline fallback.
     """
 
     def __init__(self, root: Path):
@@ -31,19 +34,23 @@ class RawTickStore:
             key = (tick.symbol, tick.source_timestamp_utc.date().isoformat())
             by_day.setdefault(key, []).append(tick)
         for (symbol, day), group in by_day.items():
+            group = sorted(group, key=lambda t: (t.source_timestamp_utc, t.source, t.source_record_id))
             out = self.root / 'raw' / symbol / f'date={day}'
             out.mkdir(parents=True, exist_ok=True)
-            first = _safe(group[0].source_record_id)
+            digest = _chunk_digest(group)
+            suffix = '.parquet' if _PARQUET else '.jsonl'
+            first_ms = int(group[0].source_timestamp_utc.timestamp() * 1000)
+            path = out / f'part-{first_ms:013d}-{digest}{suffix}'
+            if path.exists():
+                return
             if _PARQUET:
-                path = out / f'part-{first}.parquet'
                 pd.DataFrame([t.model_dump(mode='json') for t in group]).to_parquet(path, index=False)
             else:
-                path = out / f'part-{first}.jsonl'
                 with path.open('x', encoding='utf-8') as fh:
                     for tick in group:
                         fh.write(tick.model_dump_json() + '\n')
 
-    def iter_range(self, symbol, start_utc, end_utc):
+    def _iter_files(self, symbol: str) -> Iterator[NormalizedTick]:
         base = self.root / 'raw' / symbol
         if not base.exists():
             return
@@ -51,19 +58,35 @@ class RawTickStore:
         for path in paths:
             if path.suffix == '.jsonl':
                 with path.open(encoding='utf-8') as fh:
-                    rows = (json.loads(line) for line in fh if line.strip())
-                    for row in rows:
-                        tick = NormalizedTick.model_validate(row)
-                        if start_utc <= tick.source_timestamp_utc <= end_utc:
-                            yield tick
+                    for line in fh:
+                        if line.strip():
+                            yield NormalizedTick.model_validate_json(line)
             else:
                 if not _PARQUET:
                     raise RuntimeError('pyarrow required to read parquet tick store')
                 for row in pd.read_parquet(path).to_dict('records'):
-                    tick = NormalizedTick.model_validate(row)
-                    if start_utc <= tick.source_timestamp_utc <= end_utc:
-                        yield tick
+                    yield NormalizedTick.model_validate(row)
+
+    def iter_all(self, symbol: str, *, dedupe: bool = True):
+        seen: set[tuple[str, str]] = set()
+        for tick in self._iter_files(symbol):
+            identity = (tick.source, tick.source_record_id)
+            if dedupe and identity in seen:
+                continue
+            seen.add(identity)
+            yield tick
+
+    def iter_range(self, symbol, start_utc, end_utc):
+        for tick in self.iter_all(symbol):
+            if start_utc <= tick.source_timestamp_utc <= end_utc:
+                yield tick
 
 
-def _safe(value: str) -> str:
-    return ''.join(ch if ch.isalnum() or ch in '-_.' else '_' for ch in value)[:120]
+def _chunk_digest(group: list[NormalizedTick]) -> str:
+    h = hashlib.sha256()
+    for tick in group:
+        h.update(tick.source.encode())
+        h.update(b'|')
+        h.update(tick.source_record_id.encode())
+        h.update(b'\n')
+    return h.hexdigest()[:24]

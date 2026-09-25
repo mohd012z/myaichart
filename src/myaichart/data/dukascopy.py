@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import lzma
 import struct
+from dataclasses import dataclass
 import httpx
 
 from myaichart.models import NormalizedTick
@@ -41,6 +42,14 @@ def decode_bi5_ticks(payload: bytes, base_hour_utc: datetime, *, symbol='XAUUSD'
     return out
 
 
+@dataclass(frozen=True)
+class CollectionStats:
+    tick_count: int
+    chunk_count: int
+    first_tick_utc: datetime | None
+    last_tick_utc: datetime | None
+
+
 class DukascopyHistoricalProvider:
     def __init__(self, *, client: httpx.AsyncClient | None = None, attempts: int = 3):
         self._client = client
@@ -66,17 +75,47 @@ class DukascopyHistoricalProvider:
             if owns:
                 await client.aclose()
 
-    async def fetch_ticks(self, symbol: str, start_utc: datetime, end_utc: datetime):
-        cur = start_utc.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
-        end_hour = end_utc.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
-        ticks: list[NormalizedTick] = []
+    async def iter_hour_chunks(self, symbol: str, start_utc: datetime, end_utc: datetime):
+        start_utc = start_utc.astimezone(timezone.utc)
+        end_utc = end_utc.astimezone(timezone.utc)
+        cur = start_utc.replace(minute=0, second=0, microsecond=0)
+        end_hour = end_utc.replace(minute=0, second=0, microsecond=0)
         while cur <= end_hour:
-            ticks.extend(await self._fetch_hour(symbol, cur))
+            ticks = await self._fetch_hour(symbol, cur)
+            filtered = [t for t in ticks if start_utc <= t.source_timestamp_utc <= end_utc]
+            if filtered:
+                yield filtered
             cur += timedelta(hours=1)
-        return [tick for tick in ticks if start_utc <= tick.source_timestamp_utc <= end_utc]
+
+    async def fetch_ticks(self, symbol: str, start_utc: datetime, end_utc: datetime):
+        out: list[NormalizedTick] = []
+        async for chunk in self.iter_hour_chunks(symbol, start_utc, end_utc):
+            out.extend(chunk)
+        return out
 
 
-async def collect_range(provider, store, symbol: str, start_utc: datetime, end_utc: datetime):
-    ticks = await provider.fetch_ticks(symbol, start_utc, end_utc)
-    store.append_chunk(ticks)
-    return ticks
+async def collect_range(provider, store, symbol: str, start_utc: datetime, end_utc: datetime) -> CollectionStats:
+    tick_count = 0
+    chunk_count = 0
+    first_tick_utc = None
+    last_tick_utc = None
+    if hasattr(provider, 'iter_hour_chunks'):
+        async for chunk in provider.iter_hour_chunks(symbol, start_utc, end_utc):
+            if not chunk:
+                continue
+            store.append_chunk(chunk)
+            chunk_count += 1
+            tick_count += len(chunk)
+            if first_tick_utc is None or chunk[0].source_timestamp_utc < first_tick_utc:
+                first_tick_utc = chunk[0].source_timestamp_utc
+            if last_tick_utc is None or chunk[-1].source_timestamp_utc > last_tick_utc:
+                last_tick_utc = chunk[-1].source_timestamp_utc
+    else:
+        chunk = await provider.fetch_ticks(symbol, start_utc, end_utc)
+        if chunk:
+            store.append_chunk(chunk)
+            chunk_count = 1
+            tick_count = len(chunk)
+            first_tick_utc = min(t.source_timestamp_utc for t in chunk)
+            last_tick_utc = max(t.source_timestamp_utc for t in chunk)
+    return CollectionStats(tick_count, chunk_count, first_tick_utc, last_tick_utc)

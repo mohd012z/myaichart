@@ -8,6 +8,9 @@ from zoneinfo import ZoneInfo
 from myaichart.data.dukascopy import DukascopyHistoricalProvider, collect_range
 from myaichart.data.storage import RawTickStore
 from myaichart.data.integrity import verify_dataset, write_metadata
+from myaichart.data.candles import CandleStore
+from myaichart.candles.from_ticks import build_tick_candles
+from myaichart.models import BoundaryProfile
 from myaichart.server.app import create_app
 
 MYT=ZoneInfo('Asia/Kuala_Lumpur')
@@ -42,11 +45,11 @@ def build_parser():
 
 async def _collect(args):
     start,end=_range(args); root=Path(args.data_dir); store=RawTickStore(root); provider=DukascopyHistoricalProvider()
-    ticks=await collect_range(provider,store,args.symbol,start,end)
+    stats=await collect_range(provider,store,args.symbol,start,end)
     report=verify_dataset(root,args.symbol)
-    write_metadata(root,collection={'symbol':args.symbol,'requested_start_utc':start.isoformat(),'requested_end_utc':end.isoformat(),'tick_count':len(ticks)},
+    write_metadata(root,collection={'symbol':args.symbol,'requested_start_utc':start.isoformat(),'requested_end_utc':end.isoformat(),'tick_count':stats.tick_count,'chunk_count':stats.chunk_count,'first_tick_utc':stats.first_tick_utc,'last_tick_utc':stats.last_tick_utc},
                    provenance={'source':'dukascopy','display_timezone':'Asia/Kuala_Lumpur'},integrity=report)
-    print(json.dumps({'ticks':len(ticks),'start_utc':start.isoformat(),'end_utc':end.isoformat()}))
+    print(json.dumps({'ticks':stats.tick_count,'chunks':stats.chunk_count,'start_utc':start.isoformat(),'end_utc':end.isoformat()},default=str))
 
 
 def main(argv=None):
@@ -54,7 +57,14 @@ def main(argv=None):
     if not args.command: p.print_help(); return 0
     if args.command=='collect': asyncio.run(_collect(args)); return 0
     if args.command=='verify': print(json.dumps(verify_dataset(Path(args.data_dir),args.symbol),indent=2)); return 0
-    if args.command=='aggregate': print(json.dumps({'symbol':args.symbol,'timeframes':args.timeframes,'status':'configured'})); return 0
+    if args.command=='aggregate':
+        raw=RawTickStore(Path(args.data_dir))
+        bars=build_tick_candles(raw.iter_all(args.symbol,dedupe=False),args.timeframes,BoundaryProfile.MYT_CALENDAR)
+        processed=CandleStore(Path(args.data_dir))
+        outputs={}
+        for tf,items in bars.items():
+            path=processed.write(args.symbol,tf,items); outputs[tf]={'candles':len(items),'path':str(path)}
+        print(json.dumps({'symbol':args.symbol,'timeframes':outputs},default=str)); return 0
     if args.command in {'events','effects'}: print(json.dumps({'command':args.command,'action':args.action,'status':'configured'})); return 0
     if args.command=='serve':
         import uvicorn; uvicorn.run(create_app(),host=args.host,port=args.port); return 0
