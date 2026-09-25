@@ -122,3 +122,44 @@ def test_cli_aggregate_writes_processed_candles(tmp_path):
     assert main(['--data-dir',str(tmp_path),'aggregate','XAUUSD','--timeframes','M1','M5']) == 0
     processed=list((tmp_path/'processed').glob('xauusd_m1.*'))
     assert len(processed)==1
+
+
+def test_dukascopy_xau_summer_break_is_expected_not_data_gap(tmp_path):
+    from myaichart.data.integrity import verify_dataset
+
+    store=RawTickStore(tmp_path)
+    before=datetime(2026,9,22,20,59,59,tzinfo=timezone.utc)
+    after=datetime(2026,9,22,22,0,0,tzinfo=timezone.utc)
+    store.append_chunk([
+        NormalizedTick(symbol='XAUUSD',source='dukascopy',source_record_id='before-break',
+            source_timestamp_utc=before,received_timestamp_utc=before,bid=3762.5,ask=3762.6),
+        NormalizedTick(symbol='XAUUSD',source='dukascopy',source_record_id='after-break',
+            source_timestamp_utc=after,received_timestamp_utc=after,bid=3762.7,ask=3762.8),
+    ])
+
+    report=verify_dataset(tmp_path,'XAUUSD')
+    assert report['missing_hour_count'] == 1
+    assert report['scheduled_break_hour_count'] == 1
+    assert report['unexplained_missing_hour_count'] == 0
+    assert report['data_gap_count'] == 0
+
+
+def test_dukascopy_xau_weekend_closure_is_expected_not_data_gap(tmp_path):
+    from myaichart.data.integrity import verify_dataset
+
+    store=RawTickStore(tmp_path)
+    before=datetime(2026,9,25,20,59,59,tzinfo=timezone.utc)
+    after=datetime(2026,9,27,22,0,0,tzinfo=timezone.utc)
+    store.append_chunk([
+        NormalizedTick(symbol='XAUUSD',source='dukascopy',source_record_id='friday-close',
+            source_timestamp_utc=before,received_timestamp_utc=before,bid=3762.5,ask=3762.6),
+        NormalizedTick(symbol='XAUUSD',source='dukascopy',source_record_id='sunday-open',
+            source_timestamp_utc=after,received_timestamp_utc=after,bid=3762.7,ask=3762.8),
+    ])
+
+    report=verify_dataset(tmp_path,'XAUUSD')
+    assert report['missing_hour_count'] == 49
+    assert report['weekend_closed_hour_count'] == 48
+    assert report['scheduled_break_hour_count'] == 1
+    assert report['unexplained_missing_hour_count'] == 0
+    assert report['data_gap_count'] == 0
