@@ -14,19 +14,19 @@ jobs:
       - run: node tests/web/test_frontend_contract.mjs
 
   source-smoke:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/realtime-xauusd'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/test/xauusd-one-week-gate'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with: {python-version: '3.12'}
       - run: pip install -e '.[test,parquet]'
-      - name: Fetch one real XAUUSD hour
+      - name: Fetch one real XAUUSD calendar week
         run: >-
           myaichart --data-dir smoke-data collect XAUUSD
-          --from "2026-09-23 20:00:00"
-          --to "2026-09-23 20:59:59"
-      - name: Verify real ticks
+          --from "2026-09-22 00:00:00"
+          --to "2026-09-28 23:59:59"
+      - name: Verify session-aware weekly integrity
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -34,18 +34,23 @@ jobs:
           report=verify_dataset(Path('smoke-data'),'XAUUSD')
           print(report)
           assert report['raw_tick_count'] > 0, report
+          assert report['unique_tick_count'] == report['raw_tick_count'], report
+          assert report['duplicate_count'] == 0, report
+          assert report['scheduled_break_hour_count'] > 0, report
+          assert report['weekend_closed_hour_count'] > 0, report
+          assert report['unexplained_missing_hour_count'] == 0, report
+          assert report['data_gap_count'] == 0, report
           assert report['first_tick_utc'] is not None, report
           assert report['last_tick_utc'] is not None, report
           PY
-      - run: myaichart --data-dir smoke-data aggregate XAUUSD --timeframes M1 M5
-      - name: Verify processed candles
+      - run: myaichart --data-dir smoke-data aggregate XAUUSD --timeframes M1 M5 M15 H1 H4 D1
+      - name: Verify processed weekly candles
         run: |
           python - <<'PY'
           from pathlib import Path
           from myaichart.data.candles import CandleStore
           store=CandleStore(Path('smoke-data'))
-          m1=list(store.read('XAUUSD','M1'))
-          m5=list(store.read('XAUUSD','M5'))
-          print({'M1':len(m1),'M5':len(m5)})
-          assert m1 and m5
+          counts={tf:len(list(store.read('XAUUSD',tf))) for tf in ('M1','M5','M15','H1','H4','D1')}
+          print(counts)
+          assert all(count > 0 for count in counts.values()), counts
           PY
