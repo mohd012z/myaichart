@@ -59,9 +59,17 @@ def verify_dataset(root, symbol='XAUUSD'):
 
 
 def write_metadata(root, *, collection=None, provenance=None, integrity=None):
-    root=Path(root); meta=root/'metadata'; meta.mkdir(parents=True,exist_ok=True)
-    payloads={'collection.json':collection or {},'provenance.json':provenance or {},'integrity.json':integrity or verify_dataset(root)}
-    payloads['checksums.json']=payloads['integrity'].get('checksum_manifest',{})
+    root=Path(root)
+    meta=root/'metadata'
+    meta.mkdir(parents=True,exist_ok=True)
+
+    integrity_payload = integrity if integrity is not None else verify_dataset(root)
+    payloads={
+        'collection.json': collection or {},
+        'provenance.json': provenance or {},
+        'integrity.json': integrity_payload,
+        'checksums.json': integrity_payload.get('checksum_manifest',{}),
+    }
     for name,payload in payloads.items():
         (meta/name).write_text(json.dumps(payload,indent=2,default=str),encoding='utf-8')
     return payloads
