@@ -14,19 +14,19 @@ jobs:
       - run: node tests/web/test_frontend_contract.mjs
 
   source-smoke:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/realtime-xauusd'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/test/xauusd-one-day-session-aware'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with: {python-version: '3.12'}
       - run: pip install -e '.[test,parquet]'
-      - name: Fetch one real XAUUSD hour
+      - name: Fetch one real XAUUSD trading day
         run: >-
           myaichart --data-dir smoke-data collect XAUUSD
-          --from "2026-09-23 20:00:00"
-          --to "2026-09-23 20:59:59"
-      - name: Verify real ticks
+          --from "2026-09-23 00:00:00"
+          --to "2026-09-23 23:59:59"
+      - name: Verify session-aware real ticks
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -34,6 +34,12 @@ jobs:
           report=verify_dataset(Path('smoke-data'),'XAUUSD')
           print(report)
           assert report['raw_tick_count'] > 0, report
+          assert report['duplicate_count'] == 0, report
+          assert report['missing_hour_count'] == 1, report
+          assert report['scheduled_break_hour_count'] == 1, report
+          assert report['weekend_closed_hour_count'] == 0, report
+          assert report['unexplained_missing_hour_count'] == 0, report
+          assert report['data_gap_count'] == 0, report
           assert report['first_tick_utc'] is not None, report
           assert report['last_tick_utc'] is not None, report
           PY
@@ -47,5 +53,6 @@ jobs:
           m1=list(store.read('XAUUSD','M1'))
           m5=list(store.read('XAUUSD','M5'))
           print({'M1':len(m1),'M5':len(m5)})
-          assert m1 and m5
+          assert len(m1) == 1380, len(m1)
+          assert len(m5) == 276, len(m5)
           PY
