@@ -45,7 +45,7 @@ async def test_collect_range_streams_chunks_to_store_without_accumulating_all_ti
 
 
 @pytest.mark.asyncio
-async def test_provider_fetches_hour_chunks_with_bounded_concurrency_and_order():
+async def test_provider_fetches_daily_buckets_with_bounded_concurrency_and_hour_order():
     from myaichart.data.dukascopy import DukascopyHistoricalProvider
 
     class Provider(DukascopyHistoricalProvider):
@@ -53,20 +53,25 @@ async def test_provider_fetches_hour_chunks_with_bounded_concurrency_and_order()
             super().__init__(concurrency=4)
             self.active=0
             self.max_active=0
-        async def _fetch_hour(self, symbol, hour_utc, client=None):
+        async def _fetch_day(self, symbol, day_utc, client=None):
             self.active += 1
             self.max_active=max(self.max_active,self.active)
             await asyncio.sleep(0.01)
-            sec=int((hour_utc.hour % 24))
-            ts=hour_utc
-            result=[NormalizedTick(symbol='XAUUSD',source='fixture',source_record_id=f'h{hour_utc.hour}',
-                source_timestamp_utc=ts,received_timestamp_utc=ts,bid=3700+sec,ask=3700.1+sec)]
+            result=[]
+            for hour in (0, 12):
+                ts=day_utc + timedelta(hours=hour)
+                result.append(NormalizedTick(
+                    symbol='XAUUSD', source='fixture',
+                    source_record_id=f'{day_utc.date()}-{hour}',
+                    source_timestamp_utc=ts, received_timestamp_utc=ts,
+                    bid=3700+hour, ask=3700.1+hour,
+                ))
             self.active -= 1
             return result
 
     provider=Provider()
-    start=datetime(2026,9,25,0,0,tzinfo=timezone.utc)
-    end=start+timedelta(hours=7)
+    start=datetime(2026,9,20,0,0,tzinfo=timezone.utc)
+    end=datetime(2026,9,27,23,59,59,tzinfo=timezone.utc)
     chunks=[]
     async for chunk in provider.iter_hour_chunks('XAUUSD',start,end):
         chunks.append(chunk)
@@ -74,6 +79,7 @@ async def test_provider_fetches_hour_chunks_with_bounded_concurrency_and_order()
     assert provider.max_active <= 4
     times=[c[0].source_timestamp_utc for c in chunks]
     assert times == sorted(times)
+    assert len(chunks) == 16
 
 
 @pytest.mark.asyncio
