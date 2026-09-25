@@ -56,7 +56,13 @@ def build_parser():
 async def _collect(args):
     start,end=_range(args); root=Path(args.data_dir); store=RawTickStore(root); provider=DukascopyHistoricalProvider()
     stats=await collect_range(provider,store,args.symbol,start,end)
-    report=verify_dataset(root,args.symbol)
+    report=verify_dataset(
+        root,
+        args.symbol,
+        expected_start_utc=start,
+        expected_end_utc=end,
+        source_hint='dukascopy',
+    )
     write_metadata(root,collection={'symbol':args.symbol,'requested_start_utc':start.isoformat(),'requested_end_utc':end.isoformat(),'tick_count':stats.tick_count,'chunk_count':stats.chunk_count,'first_tick_utc':stats.first_tick_utc,'last_tick_utc':stats.last_tick_utc},
                    provenance={'source':'dukascopy','display_timezone':'Asia/Kuala_Lumpur'},integrity=report)
     print(json.dumps({'ticks':stats.tick_count,'chunks':stats.chunk_count,'start_utc':start.isoformat(),'end_utc':end.isoformat()},default=str))
