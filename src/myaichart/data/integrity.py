@@ -44,6 +44,7 @@ def verify_dataset(root, symbol='XAUUSD'):
 
     missing_hour_count=0
     scheduled_break_hour_count=0
+    weekend_closed_hour_count=0
     unexplained_missing_hour_count=0
     data_gap_count=0
     source=next(iter(sources)) if len(sources)==1 else None
@@ -64,13 +65,16 @@ def verify_dataset(root, symbol='XAUUSD'):
                     if source=='dukascopy'
                     else None
                 )
+                weekend = reference_state == 'WEEKEND'
                 state=classify_interval(
                     ticks_present=False,
-                    reference_state=reference_state,
+                    reference_state=None if weekend else reference_state,
                     outage=False,
-                    weekend=False,
+                    weekend=weekend,
                 ).observed_market_state
-                if state=='SCHEDULED_BREAK':
+                if state=='WEEKEND':
+                    weekend_closed_hour_count += 1
+                elif state=='SCHEDULED_BREAK':
                     scheduled_break_hour_count += 1
                 else:
                     unexplained_missing_hour_count += 1
@@ -85,6 +89,7 @@ def verify_dataset(root, symbol='XAUUSD'):
         'data_gap_count':data_gap_count,
         'missing_hour_count':missing_hour_count,
         'scheduled_break_hour_count':scheduled_break_hour_count,
+        'weekend_closed_hour_count':weekend_closed_hour_count,
         'unexplained_missing_hour_count':unexplained_missing_hour_count,
         'first_tick_utc':None if first_tick is None else first_tick.isoformat(),
         'last_tick_utc':None if last_tick is None else last_tick.isoformat(),
