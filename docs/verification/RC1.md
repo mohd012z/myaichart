@@ -6,7 +6,7 @@ Scope: research-only XAUUSD market evidence, realtime/replay candles, Chart.js w
 
 ## Fresh verification evidence
 
-### Python tests
+### Python tests — GitHub Actions
 
 Command:
 
@@ -14,13 +14,15 @@ Command:
 pytest -q
 ```
 
-Observed result before this report was written:
+Observed on commit `6788a465cf0aa7c40f1582d4eaf49d07d38fe3ff`:
 
 ```text
-65 passed, 1 warning in 1.34s
+68 passed, 1 warning in 0.79s
 ```
 
-### Frontend contract
+The warning is a Starlette/FastAPI TestClient deprecation warning and did not fail the suite.
+
+### Frontend contract — GitHub Actions
 
 Command:
 
@@ -30,66 +32,88 @@ node tests/web/test_frontend_contract.mjs
 
 Observed result: exit code 0.
 
-### Editable installation
+### Editable installation — GitHub Actions
 
 Command:
 
 ```bash
-python -m pip install -e '.[test]' --no-build-isolation
+pip install -e '.[test,parquet]'
 ```
 
-Observed result: `Successfully installed myaichart-0.1.0`.
+Observed result: package build/install succeeded on Python 3.12, including `pyarrow` Parquet support.
 
-`--no-build-isolation` is used in this execution environment because it has no outbound package installation access and already provides setuptools. The package itself uses the standard `setuptools.build_meta` backend.
+### CLI / compile verification
 
-### CLI
+The local RC verification established that `myaichart --help` and `python -m compileall -q src` exit successfully. The current GitHub CI independently verifies install, Python tests, and the Node frontend contract.
 
-Command:
+## Real-source smoke test — PASSED
 
-```bash
-myaichart --help
-```
-
-Observed command groups:
+GitHub Actions run `36144081466`, job `source-smoke`, fetched a bounded real Dukascopy XAUUSD interval requested as Malaysia time:
 
 ```text
-collect, verify, aggregate, events, effects, serve, live, replay
+2026-09-23 20:00:00 MYT -> 20:59:59 MYT
 ```
 
-### Compile verification
-
-Command:
-
-```bash
-python -m compileall -q src
-```
-
-Observed result: exit code 0.
-
-## Source smoke test
-
-Attempted one historical Dukascopy XAUUSD hour:
+which normalized to:
 
 ```text
 2026-09-23 12:00:00 UTC -> 12:59:59 UTC
 ```
 
-Observed result:
+Observed collection result:
 
-```text
-SOURCE_SMOKE_BLOCKED ConnectError [Errno -3] Temporary failure in name resolution
+```json
+{"ticks": 14412, "chunks": 1, "start_utc": "2026-09-23T12:00:00+00:00", "end_utc": "2026-09-23T12:59:59+00:00"}
 ```
 
-Therefore this environment did not fabricate a tick count or performance result. The downloader/BI5 parser is covered with deterministic binary fixtures. The GitHub repository now exists and CI is green; the remaining source check is the manual bounded `Collect XAUUSD` workflow.
+Integrity verification:
 
-## Offline storage ruling
+```text
+raw_tick_count    14412
+unique_tick_count 14412
+duplicate_count   0
+data_gap_count    0
+missing_hour_count 0
+first_tick_utc    2026-09-23T12:00:00.095000+00:00
+last_tick_utc     2026-09-23T12:59:58.837000+00:00
+```
 
-`pyarrow` could not be downloaded in this environment. `RawTickStore` therefore supports:
+A SHA-256 checksum manifest was generated for the raw Parquet partition and metadata files.
+
+The same real tick sample was then aggregated successfully:
+
+```text
+M1 candles 60
+M5 candles 12
+```
+
+Both `Verify real ticks` and `Verify processed candles` completed successfully in GitHub Actions.
+
+## Dukascopy rate-limit hardening
+
+An earlier source-smoke run exposed HTTP 429 throttling. The collector was changed under regression tests to:
+
+- use the current daily BI5 bucket path for six-month collection instead of issuing one HTTP request per hour;
+- split accepted daily ticks back into chronological hourly chunks internally;
+- default to conservative request concurrency;
+- honor numeric `Retry-After` on HTTP 429;
+- use capped exponential backoff for retryable 429/5xx/transport failures;
+- keep the legacy hourly fetch helper for compatibility/diagnostics.
+
+This reduces a six-month collection from roughly 4,300 hourly requests to roughly 180 daily requests before retries.
+
+## Metadata regression fixed
+
+The first successful real fetch exposed a separate metadata bug: `write_metadata()` referenced `payloads['integrity']` although the stored key was `integrity.json`. A RED regression test reproduced the exact `KeyError`; the writer now builds `checksums.json` directly from the computed integrity payload. The final source-smoke passed after this fix.
+
+## Storage behavior
+
+`RawTickStore` supports:
 
 - Parquet when the optional `parquet` extra is installed;
 - append-only JSONL fallback when Parquet support is unavailable.
 
-The normalized tick API, source identity, timestamps, and evidence semantics are unchanged.
+GitHub Actions uses the Parquet path. The normalized tick API, source identity, timestamps, and evidence semantics are identical across storage backends.
 
 ## Core verified contracts
 
@@ -107,27 +131,48 @@ The normalized tick API, source identity, timestamps, and evidence semantics are
 - P2 shadow BLOCK/ALLOW annotations do not remove or mutate P1 control trades.
 - FastAPI exposes health/timeframe and WebSocket contracts.
 - Chart.js frontend keeps backend tick processing separate from repaint throttling.
-- MT5 bridge adapter accepts real normalized incoming ticks but contains no broker order execution.
+- MT5 bridge adapter accepts normalized incoming ticks but contains no broker order execution.
 
 ## Known limitations
 
-- No real six-month XAUUSD download was completed inside this offline runtime; the manual GitHub workflow now supports a bounded one-hour MYT smoke range before a full run.
+- The bounded real-source smoke passed, but the full six-calendar-month XAUUSD dataset has **not yet been collected**. Do not treat the one-hour smoke sample as a six-month backtest dataset.
 - The packaged `DukascopyLiveAdapter` is only an adapter boundary; a live JForex connection is not embedded.
 - The MT5 bridge is an incoming-tick adapter contract, not an embedded MetaTrader terminal connector.
 - Broker-specific contract size, commissions, slippage, and execution are not treated as authoritative unless supplied by the broker/test environment.
 - Consensus forecasts remain optional and are not synthesized.
-- Parquet is optional in the local offline build; GitHub Actions installs the `parquet` extra.
+- The smoke workflow did not print first/last bid/ask prices in its log, so this report does not invent them.
 
 ## GitHub verification
 
-- PR #1 head `58dcad457ea12a199025f2c7684b1b2ebe24bd6c` passed GitHub CI.
-- GitHub Python 3.12 installed the optional Parquet extra successfully.
-- GitHub `pytest -q` result: `65 passed, 1 warning in 1.34s`.
-- Frontend Node contract exited successfully.
+Latest verified implementation commit before this documentation update:
 
-## Next source verification
+```text
+6788a465cf0aa7c40f1582d4eaf49d07d38fe3ff
+```
 
-1. Run the manual `Collect XAUUSD` workflow with an explicit one-hour MYT start/end.
-2. Validate first/last bid/ask, tick count, data gaps, M1/M5 candle counts, checksums, BLS event output, and news-effect output.
-3. Only after the bounded smoke run is valid, request the six-calendar-month dataset artifact.
-4. Enable the raw-tick artifact only when the raw tick archive is actually needed.
+GitHub Actions run:
+
+```text
+36144081466
+```
+
+Results:
+
+```text
+test job          SUCCESS
+pytest             68 passed
+frontend contract  SUCCESS
+source-smoke       SUCCESS
+real ticks         14,412
+M1 candles         60
+M5 candles         12
+duplicates         0
+data gaps           0
+```
+
+## Next dataset gate
+
+1. Run the `Collect XAUUSD` workflow for a larger bounded period (for example one trading day or one week) to validate sustained source behavior and artifact size.
+2. Verify tick/candle counts, data gaps, spread/liquidity distributions, checksums, event alignment, and storage size.
+3. Only after that gate is clean, run the full six-calendar-month collection as a GitHub Actions artifact rather than committing raw tick blobs to normal Git history.
+4. Use the resulting six-month evidence dataset for the BABYLON backtest/replay comparison; keep live execution disabled.
