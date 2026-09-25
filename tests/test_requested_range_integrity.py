@@ -61,3 +61,26 @@ def test_persisted_collection_bounds_are_used_when_explicit_bounds_are_omitted(t
 
     report = verify_dataset(tmp_path, 'XAUUSD')
     _assert_edge_gap_report(report)
+
+
+def test_ticks_outside_requested_interval_do_not_satisfy_boundary_hour_coverage(tmp_path):
+    start = datetime(2026, 9, 21, 10, 30, tzinfo=timezone.utc)
+    end = datetime(2026, 9, 21, 12, 30, tzinfo=timezone.utc)
+    RawTickStore(tmp_path).append_chunk([
+        _tick(datetime(2026, 9, 21, 10, 15, tzinfo=timezone.utc), 'before-start'),
+        _tick(datetime(2026, 9, 21, 11, 0, tzinfo=timezone.utc), 'inside'),
+        _tick(datetime(2026, 9, 21, 12, 45, tzinfo=timezone.utc), 'after-end'),
+    ])
+
+    report = verify_dataset(
+        tmp_path,
+        'XAUUSD',
+        expected_start_utc=start,
+        expected_end_utc=end,
+        source_hint='dukascopy',
+    )
+
+    assert report['raw_tick_count'] == 3
+    assert report['missing_hour_count'] == 2
+    assert report['unexplained_missing_hour_count'] == 2
+    assert report['data_gap_count'] == 2
