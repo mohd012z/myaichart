@@ -17,7 +17,7 @@ pytest -q
 Observed result before this report was written:
 
 ```text
-49 passed in 0.29s
+65 passed, 1 warning in 1.34s
 ```
 
 ### Frontend contract
@@ -80,7 +80,7 @@ Observed result:
 SOURCE_SMOKE_BLOCKED ConnectError [Errno -3] Temporary failure in name resolution
 ```
 
-Therefore this environment did not fabricate a tick count or performance result. The downloader/BI5 parser is covered with deterministic binary fixtures, while a real-source smoke run must be repeated in an internet-enabled environment, preferably GitHub Actions.
+Therefore this environment did not fabricate a tick count or performance result. The downloader/BI5 parser is covered with deterministic binary fixtures. The GitHub repository now exists and CI is green; the remaining source check is the manual bounded `Collect XAUUSD` workflow.
 
 ## Offline storage ruling
 
@@ -102,8 +102,8 @@ The normalized tick API, source identity, timestamps, and evidence semantics are
 - Overlapping reconnect/backfill data are deterministically deduplicated.
 - Replay uses the same normalized tick/candle path as live input.
 - Spread, top-of-book liquidity/activity, volatility, and Bollinger calculations are separated semantically.
-- Economic-event times normalize to UTC and MYT; revisions retain history.
-- Pre-event features do not expose future post-event outcomes.
+- BLS official-calendar events normalize Eastern Time to UTC and MYT; missing forecasts remain null; revisions retain history.
+- Event-effect baselines use only candles closed at or before the target time; pre-event features do not expose future post-event outcomes.
 - P2 shadow BLOCK/ALLOW annotations do not remove or mutate P1 control trades.
 - FastAPI exposes health/timeframe and WebSocket contracts.
 - Chart.js frontend keeps backend tick processing separate from repaint throttling.
@@ -111,16 +111,23 @@ The normalized tick API, source identity, timestamps, and evidence semantics are
 
 ## Known limitations
 
-- No real six-month XAUUSD download was completed inside this offline runtime.
+- No real six-month XAUUSD download was completed inside this offline runtime; the manual GitHub workflow now supports a bounded one-hour MYT smoke range before a full run.
 - The packaged `DukascopyLiveAdapter` is only an adapter boundary; a live JForex connection is not embedded.
 - The MT5 bridge is an incoming-tick adapter contract, not an embedded MetaTrader terminal connector.
 - Broker-specific contract size, commissions, slippage, and execution are not treated as authoritative unless supplied by the broker/test environment.
 - Consensus forecasts remain optional and are not synthesized.
 - Parquet is optional in the local offline build; GitHub Actions installs the `parquet` extra.
 
-## Next verification in GitHub Actions
+## GitHub verification
 
-1. Run CI on `feature/realtime-xauusd` and confirm the Python + frontend suites in GitHub's environment.
-2. Run the `Collect XAUUSD` workflow with a small historical interval first.
-3. Validate first/last bid/ask, tick count, data gaps, M1/M5 candle counts, and checksums.
-4. Only after the smoke run is valid, request the six-month dataset artifact.
+- PR #1 head `58dcad457ea12a199025f2c7684b1b2ebe24bd6c` passed GitHub CI.
+- GitHub Python 3.12 installed the optional Parquet extra successfully.
+- GitHub `pytest -q` result: `65 passed, 1 warning in 1.34s`.
+- Frontend Node contract exited successfully.
+
+## Next source verification
+
+1. Run the manual `Collect XAUUSD` workflow with an explicit one-hour MYT start/end.
+2. Validate first/last bid/ask, tick count, data gaps, M1/M5 candle counts, checksums, BLS event output, and news-effect output.
+3. Only after the bounded smoke run is valid, request the six-calendar-month dataset artifact.
+4. Enable the raw-tick artifact only when the raw tick archive is actually needed.
