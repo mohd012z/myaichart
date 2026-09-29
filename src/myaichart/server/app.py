@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -34,6 +35,19 @@ class IngestTick(BaseModel):
 def create_app(*, testing: bool = False, data_dir=None, live_hub: LiveHub | None = None):
     app = FastAPI(title='myaichart')
     app.state.testing = testing
+
+    # Cross-origin read for the chart surfaces. The web page is same-origin
+    # (served by /web), but the Capacitor/veyra APK loads the chart from the
+    # WebView origin (https://localhost) and must read myaichart REST + WS
+    # cross-origin. CORS is a read-control concern only: the market-data
+    # authority is unchanged (this server remains the sole source).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
     web_root = Path(__file__).resolve().parents[3] / 'web'
     if web_root.exists():
@@ -154,6 +168,8 @@ def create_app(*, testing: bool = False, data_dir=None, live_hub: LiveHub | None
 
     @app.websocket('/ws/live')
     async def live(ws: WebSocket):
+        # WebSocket is not subject to browser CORS (no preflight); the
+        # server's market data is public read-only, so accept as before.
         await ws.accept()
         await live_hub.register(ws)
         try:
