@@ -53,6 +53,14 @@ class NormalizedTick(BaseModel):
     bid_volume_best: float | None = None
     ask_volume_best: float | None = None
     sequence_id: str | None = None
+    # market.tick.v1 quality envelope (see myaichart/market/health.py)
+    provider_symbol: str | None = None
+    source_class: str | None = None
+    latency_ms: float | None = None
+    is_duplicate: bool = False
+    is_stale: bool = False
+    is_out_of_order: bool = False
+    spread_price_tag: str | None = None
 
     @model_validator(mode="after")
     def validate_quote(self):
