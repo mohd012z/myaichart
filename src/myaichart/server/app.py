@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +17,8 @@ from myaichart.models import BoundaryProfile, NormalizedTick
 from myaichart.server.live_hub import LiveHub, candle_to_chart
 from myaichart.server.sessions import session_zones
 from myaichart.server.websocket import testing_message
+
+logger = logging.getLogger('myaichart.server')
 
 TIMEFRAMES = ['M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D1', 'W1', 'MN1']
 
@@ -32,7 +37,17 @@ class IngestTick(BaseModel):
     c5: float = 0.0
 
 
-def create_app(*, testing: bool = False, data_dir=None, live_hub: LiveHub | None = None):
+def create_app(*, testing: bool = False, data_dir=None, live_hub: LiveHub | None = None,
+               live_pipeline=None):
+    """Build the myaichart server.
+
+    ``live_pipeline`` (optional, a ``LivePipeline`` from ``myaichart.live``)
+    wires the live feed: its publisher hook feeds every ``CandleUpdate`` to
+    the hub so ``/ws/live`` carries real-time candles, and its HealthEngine
+    powers ``/api/health/providers``. The pipeline runs under the app
+    lifespan (started on boot, stopped on shutdown). Without a pipeline the
+    server is unchanged (static store + manual ingest only).
+    """
     app = FastAPI(title='myaichart')
     app.state.testing = testing
 
@@ -59,19 +74,57 @@ def create_app(*, testing: bool = False, data_dir=None, live_hub: LiveHub | None
     if data_dir is not None:
         engine = CandleEngine(TIMEFRAMES, BoundaryProfile.MYT_CALENDAR)
     if live_hub is None:
-        async def _backfill():
+        hub_symbol = live_pipeline.symbol if live_pipeline is not None else 'XAUUSD'
+
+        async def _backfill(symbol: str = hub_symbol):
             if store is None:
                 return None
             out = {}
             for tf in TIMEFRAMES:
-                rows = list(store.read('XAUUSD', tf) or [])
+                rows = list(store.read(symbol, tf) or [])
                 if rows:
                     out[tf] = rows
             return out or None
-        live_hub = LiveHub(backfill_fn=_backfill)
+        live_hub = LiveHub(backfill_fn=_backfill, default_symbol=hub_symbol)
     app.state.live_hub = live_hub
     app.state.store = store
     app.state.engine = engine
+
+    # ---- live feed (PR #7 pipeline -> hub: the documented seam) ----
+    app.state.live_pipeline = live_pipeline
+    if live_pipeline is not None:
+        app.state.health_engine = live_pipeline.health
+
+        async def _on_candle_update(update):
+            # Every CandleUpdate (per timeframe) is broadcast to /ws/live —
+            # the chart renders per-TF streams; the hub is the sole fan-out.
+            await live_hub.publish(update.candle)
+
+        async def _run_feed():
+            try:
+                await live_pipeline.run_with_watchdog()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # A broken feed must not take the server down: the health
+                # engine reports STALE/DISCONNECTED and /ws/live goes quiet.
+                logger.exception('live feed %s crashed', live_pipeline.symbol)
+
+        live_pipeline.publisher = _on_candle_update
+
+        @asynccontextmanager
+        async def _lifespan(_app):
+            task = asyncio.create_task(_run_feed())
+            try:
+                yield
+            finally:
+                live_pipeline.stop()
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        app.router.lifespan_context = _lifespan
 
     def _m1_rows():
         if store is None:
@@ -111,6 +164,20 @@ def create_app(*, testing: bool = False, data_dir=None, live_hub: LiveHub | None
         return h.report() if h is not None else {
             'symbol': 'XAUUSD', 'hub_state': 'NO_AUTHORITY', 'authority': None,
             'providers': {}, 'divergence': {}, 'switch_log': [],
+        }
+
+    @app.get('/api/live/status')
+    def live_status():
+        """Pipeline state for the feed-health panel (PR #7 stats)."""
+        p = getattr(app.state, 'live_pipeline', None)
+        if p is None:
+            return {'configured': False}
+        s = p.stats
+        return {
+            'configured': True, 'symbol': p.symbol, 'status': p.status,
+            'ticks_in': s.ticks_in, 'normalized': s.normalized,
+            'duplicates': s.duplicates, 'dropped_no_price': s.dropped_no_price,
+            'candles_published': s.candles_published, 'outages': s.outages,
         }
 
     @app.get('/api/sessions')
