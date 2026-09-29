@@ -106,6 +106,26 @@ def test_latest_open_utc_picks_most_recent_past_open():
     assert open_utc == datetime(2026, 9, 29, 0, 0, tzinfo=UTC)
 
 
+def test_latest_open_utc_when_local_date_ahead_of_utc_date():
+    # Regression: at 16:00Z the UTC date is 09-29 but Tokyo local is already
+    # 09-30 01:00. The most recent Tokyo open is TODAY's (09-29 00:00Z), not
+    # tonight's (09-30 00:00Z) — the old offset walk (0,-1,-2) produced all
+    # future candidates and fell back to tonight's open.
+    now = datetime(2026, 9, 29, 16, 0, tzinfo=UTC)  # 09-30 01:00 JST
+    open_utc = _latest_open_utc(now, _time(9, 0), ZoneInfo("Asia/Tokyo"))
+    assert open_utc == datetime(2026, 9, 29, 0, 0, tzinfo=UTC)
+    # US at 16:00Z is 12:00 EDT on 09-29 (after its 09:30 open) -> the most
+    # recent US open is TODAY's 13:30Z. (Contrast: before 13:30Z it would be
+    # 09-28's — see test_latest_open_utc_picks_most_recent_past_open.)
+    us_open = _latest_open_utc(now, _time(9, 30), ZoneInfo("America/New_York"))
+    assert us_open == datetime(2026, 9, 29, 13, 30, tzinfo=UTC)
+    # and a time BEFORE the US open: 12:00Z = 08:00 EDT, before 09:30 -> last
+    # open is 09-28.
+    us_before = _latest_open_utc(datetime(2026, 9, 29, 12, 0, tzinfo=UTC),
+                                 _time(9, 30), ZoneInfo("America/New_York"))
+    assert us_before == datetime(2026, 9, 28, 13, 30, tzinfo=UTC)
+
+
 def test_session_zones_empty_without_candles():
     assert session_zones([], datetime(2026, 9, 29, 8, 0, tzinfo=UTC)) == []
 

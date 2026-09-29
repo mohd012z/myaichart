@@ -33,18 +33,31 @@ class SessionZone:
 
 
 def _latest_open_utc(now_utc: datetime, local_open: time, tz: ZoneInfo) -> datetime:
-    """Most recent session-open instant (UTC) at or before now_utc."""
+    """Most recent session-open instant (UTC) at or before now_utc.
+
+    Walks back through the session's *local* calendar (today, yesterday,
+    day-before). A session's local date can be ahead of the UTC date — Tokyo
+    (+9) at 16:00Z is already 01:00 local the next day — so using the UTC
+    date (or walking offsets in the wrong direction) can pick an open that
+    hasn't happened yet. We therefore enumerate local-day candidates and keep
+    the latest one that is at or before ``now_utc``.
+    """
     local_now = now_utc.astimezone(tz)
-    candidates = []
-    for day_offset in (0, -1, -2):  # today + two prior local days (covers holidays/weekend edges)
-        day = (local_now - timedelta(days=day_offset))
-        candidate_local = day.replace(hour=local_open.hour, minute=local_open.minute,
-                                      second=0, microsecond=0)
-        candidates.append(candidate_local.astimezone(timezone.utc))
-    past = [c for c in candidates if c <= now_utc]
-    if not past:
-        return candidates[0].astimezone(timezone.utc)
-    return max(past)
+    best = None
+    for day_offset in (0, 1, 2):  # today, yesterday, day-before — in local days
+        candidate_local = (local_now - timedelta(days=day_offset)).replace(
+            hour=local_open.hour, minute=local_open.minute,
+            second=0, microsecond=0)
+        candidate_utc = candidate_local.astimezone(timezone.utc)
+        if candidate_utc <= now_utc and (best is None or candidate_utc > best):
+            best = candidate_utc
+    if best is None:
+        # Defensively unreachable (an open must have happened within the last
+        # 2 local days); fall back to the oldest candidate.
+        best = (local_now - timedelta(days=2)).replace(
+            hour=local_open.hour, minute=local_open.minute,
+            second=0, microsecond=0).astimezone(timezone.utc)
+    return best
 
 
 def first_candle_zone(candles: list[Candle], open_utc: datetime) -> SessionZone | None:
