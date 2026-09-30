@@ -15,7 +15,7 @@ from myaichart.models import BoundaryProfile
 from myaichart.events.bls import fetch_calendar as fetch_bls_calendar
 from myaichart.events.storage import EventStore
 from myaichart.events.effects import build_effect_dataset, write_effect_dataset
-from myaichart.server.app import create_app
+from myaichart.server.app import create_app, TIMEFRAMES
 
 MYT=ZoneInfo('Asia/Kuala_Lumpur')
 
@@ -47,7 +47,7 @@ def build_parser():
     a=sub.add_parser('aggregate'); a.add_argument('symbol'); a.add_argument('--timeframes',nargs='+',default=['M1','M5','M15','M30','H1','H4','D1','W1','MN1'])
     e=sub.add_parser('events'); e.add_argument('action',choices=['sync'])
     ef=sub.add_parser('effects'); ef.add_argument('action',choices=['build']); ef.add_argument('symbol',nargs='?',default='XAUUSD')
-    s=sub.add_parser('serve'); s.add_argument('symbol',nargs='?',default='XAUUSD'); s.add_argument('--timezone',default='Asia/Kuala_Lumpur'); s.add_argument('--host',default='127.0.0.1'); s.add_argument('--port',type=int,default=8000)
+    s=sub.add_parser('serve'); s.add_argument('symbol',nargs='?',default='XAUUSD'); s.add_argument('--timezone',default='Asia/Kuala_Lumpur'); s.add_argument('--host',default='127.0.0.1'); s.add_argument('--port',type=int,default=8000); s.add_argument('--feed',default=None,choices=[None,'okx'],help='live feed adapter (okx = OKX public WS, no key)')
     l=sub.add_parser('live'); l.add_argument('symbol'); l.add_argument('--source',default='mt5'); l.add_argument('--timezone',default='Asia/Kuala_Lumpur')
     r=sub.add_parser('replay'); r.add_argument('symbol'); r.add_argument('--from',dest='from_time'); r.add_argument('--speed',type=float,default=1); r.add_argument('--timezone',default='Asia/Kuala_Lumpur')
     return p
@@ -106,7 +106,17 @@ def main(argv=None):
     if args.command=='events': asyncio.run(_sync_events(args)); return 0
     if args.command=='effects': _build_effects(args); return 0
     if args.command=='serve':
-        import uvicorn; uvicorn.run(create_app(),host=args.host,port=args.port); return 0
+        import uvicorn
+        app=None
+        if args.feed=='okx':
+            from myaichart.live.okx_public import OkxPublicAdapter
+            from myaichart.live.pipeline import LivePipeline
+            from myaichart.candles.engine import CandleEngine
+            pipe=LivePipeline(OkxPublicAdapter(), CandleEngine(TIMEFRAMES, BoundaryProfile.MYT_CALENDAR), symbol=args.symbol)
+            app=create_app(data_dir=Path(args.data_dir) if args.data_dir else None, live_pipeline=pipe)
+        elif args.data_dir:
+            app=create_app(data_dir=Path(args.data_dir))
+        uvicorn.run(app if app is not None else create_app(),host=args.host,port=args.port); return 0
     if args.command=='live': print(json.dumps({'symbol':args.symbol,'source':args.source,'timezone':args.timezone,'status':'adapter-required'})); return 0
     if args.command=='replay': print(json.dumps({'symbol':args.symbol,'from':args.from_time,'speed':args.speed,'timezone':args.timezone,'status':'configured'})); return 0
     return 0
