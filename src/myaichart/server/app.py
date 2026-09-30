@@ -182,10 +182,21 @@ def create_app(*, testing: bool = False, data_dir=None, live_hub: LiveHub | None
 
     @app.get('/api/sessions')
     def sessions():
-        """Server-authoritative Tokyo/US first-candle zones (read-only in UI)."""
-        now = datetime.now(timezone.utc)
-        zones = session_zones(_m1_rows(), now)
-        return {'now_utc': now.isoformat(), 'zones': [
+        """Server-authoritative Tokyo/US first-candle zones (read-only in UI).
+
+        The reference time is the latest stored M1 candle (data-driven),
+        not the wall clock: in live operation the latest candle ≈ now so
+        behaviour is identical, but for historical/backfilled/replayed data
+        the zones are computed relative to the data's own timeline — a
+        wall-clock reference would walk to *today's* open and miss all
+        candles older than that (zones silently empty once data lags)."""
+        rows = _m1_rows()
+        if rows:
+            ref = max(c.time_open_utc for c in rows)
+        else:
+            ref = datetime.now(timezone.utc)
+        zones = session_zones(rows, ref)
+        return {'now_utc': datetime.now(timezone.utc).isoformat(), 'zones': [
             {
                 'name': z.name, 'exchange_tz': z.exchange_tz,
                 'open_utc': z.open_utc.isoformat(),
