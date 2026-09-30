@@ -164,6 +164,45 @@ def _grade(ratios, bounds):
     return round(sum(accs) / len(accs), 4)
 
 
+def _pivot_confirm_bars(highs, lows, *, deviation=0.03, backstep: int = 3,
+                        depth: int = 10):
+    """Same walk as `zigzag_pivots`, but also returns the bar at which each
+    confirmed pivot becomes known (the index of the reversing candidate that
+    confirmed it). A prefix highs[:i+1] has confirmed pivot j iff
+    i >= confirm_bar[j] — so the causal backtest can compute the full pivot
+    list ONCE and decide tradability per bar without rescanning history."""
+    n = len(highs)
+    if n < 3:
+        return [], {}
+    cands: list[tuple[int, float, str]] = []
+    for i in range(n):
+        lo = max(0, i - backstep)
+        hi = min(n, i + backstep + 1)
+        if highs[i] == max(highs[lo:hi]) and hi - lo >= 2:
+            cands.append((i, highs[i], 'H'))
+        if lows[i] == min(lows[lo:hi]) and hi - lo >= 2:
+            cands.append((i, lows[i], 'L'))
+    cands.sort()
+    out: list[Pivot] = []
+    confirm: dict[int, int] = {}
+    cur_i, cur_p, cur_k = -1, 0.0, ''
+    for (i, p, k) in cands:
+        if i <= cur_i:
+            continue
+        if k == cur_k:
+            if (k == 'H' and p >= cur_p) or (k == 'L' and p <= cur_p):
+                cur_i, cur_p = i, p
+            continue
+        if cur_i < 0:
+            cur_i, cur_p, cur_k = i, p, k
+            continue
+        if abs(p - cur_p) >= deviation * cur_p and (i - cur_i) >= depth:
+            out.append(Pivot(cur_i, cur_k, cur_p))
+            confirm[cur_i] = i  # pivot at cur_i is known once bar i appears
+            cur_i, cur_p, cur_k = i, p, k
+    return out, confirm
+
+
 def scan_harmonics(highs, lows, *, zigzag_kwargs=None, min_gap: int = 1):
     """Detect harmonic patterns over the zigzag pivot list.
 
@@ -387,6 +426,14 @@ def backtest_harmonics(candles, signals, *, lookahead=120):
             'd_bar': db, 'entry_bar': db + 1, 'levels': lv,
             'outcome': outcome, 'result': res, 'pts_r': round(pts, 3),
         })
+    stats = _trade_stats(trades)
+    return {'trades': trades, 'stats': stats}
+
+
+def _trade_stats(trades):
+    """Per-pattern aggregates shared by the naive and causal backtests.
+    Neutral trades (time stops) are counted but excluded from the
+    win/loss point totals; their close-based P&L is in pts_r."""
     stats = {}
     for t in trades:
         s = stats.setdefault(t['pattern'], {'n': 0, 'wins': 0, 'losses': 0,
@@ -405,4 +452,113 @@ def backtest_harmonics(candles, signals, *, lookahead=120):
         s['avg_win_pts'] = round(s['win_pts'] / s['wins'], 3) if s['wins'] else 0.0
         s['avg_loss_pts'] = round(s['loss_pts'] / s['losses'], 3) if s['losses'] else 0.0
         s['profit_factor'] = round(s['win_pts'] / s['loss_pts'], 3) if s['loss_pts'] else None
+    return stats
+
+
+def atr_series(candles, period=14):
+    """Per-bar ATR (Wilder-free, simple rolling average of true range).
+    Bars before `period` are 0.0 (insufficient history)."""
+    n = len(candles)
+    trs = [0.0] * n
+    for i in range(1, n):
+        c = candles[i]
+        trs[i] = max(c['high'] - c['low'],
+                     abs(c['high'] - candles[i - 1]['close']),
+                     abs(c['low'] - candles[i - 1]['close']))
+    atr = [0.0] * n
+    for i in range(period, n):
+        atr[i] = sum(trs[i - period + 1:i + 1]) / period
+    return atr
+
+
+def backtest_causal(candles, highs, lows, *, stop_atr=1.0, tp_atrs=(1.5, 3.0, 6.0),
+                    lookahead=120, min_bars=60, zigzag_kwargs=None, min_gap=1):
+    """No-lookahead (causal) backtest of the harmonic D-point strategy.
+
+    At each bar i the zigzag is recomputed on history [0..i] ONLY, so a
+    pivot D is tradable only once it is confirmed — this removes the
+    lookahead bias of `backtest_harmonics` (which uses pivots known only
+    after a later reversal). Levels are ATR-normalized (isolating entry
+    timing from the vendor's AD-scaled sizing, proven non-viable on
+    BTC H1): entry at close[i], stop stop_atr*ATR against, targets
+    tp_atrs*ATR in the trade direction.
+
+    One concurrent trade (flat until the lookahead window ends), one
+    trade per D pivot. Conservative in-bar rule: stop checked before
+    targets. Returns {'trades': [...], 'stats': ...} like
+    backtest_harmonics.
+
+    Performance: the full pivot list + all signals are computed ONCE; a
+    signal is tradable at bar i iff its D pivot's confirmation bar < i
+    (a prefix [0..i] has confirmed pivot j exactly when i >= confirm[j]).
+    This is O(n * #signals) rather than the O(n * pivots**5) of rescanning
+    history at every bar, and produces the identical trade sequence.
+    """
+    n = len(candles)
+    atr = atr_series(candles)
+    zk = dict(deviation=0.03, backstep=3, depth=10)
+    zk.update(zigzag_kwargs or {})
+    # Compute the full pivot set + all signals ONCE.
+    _, confirm = _pivot_confirm_bars(
+        highs, lows, deviation=zk['deviation'],
+        backstep=int(zk['backstep']), depth=int(zk['depth']))
+    sigs_all = scan_harmonics(highs, lows, zigzag_kwargs=zk, min_gap=min_gap)
+    # Per D index, the best-accuracy signal (scan_harmonics already caps 3
+    # per D sorted by accuracy desc; we need the single best for selection).
+    trades = []
+    traded_d: set[int] = set()
+    open_until = -1
+    for i in range(min_bars, n - 1):
+        if i <= open_until:
+            continue
+        if atr[i] <= 0:
+            continue
+        # signals whose D pivot is confirmed before bar i and not yet traded.
+        # confirm[j] <= i exactly reproduces the old per-bar prefix scan
+        # (highs[:i+1] includes a pivot confirmed at bar i); j < i follows
+        # since confirm[j] >= j+1.
+        fresh = [s for s in sigs_all
+                 if s.bars['D'] < i
+                 and confirm.get(s.bars['D'], 10**18) <= i
+                 and s.bars['D'] not in traded_d]
+        if not fresh:
+            continue
+        sig = max(fresh, key=lambda s: (s.bars['D'], s.accuracy))
+        traded_d.add(sig.bars['D'])
+        sgn = 1 if sig.direction == 'bullish' else -1
+        entry = candles[i]['close']
+        stop = entry - sgn * stop_atr * atr[i]
+        tps = [entry + sgn * t * atr[i] for t in tp_atrs]
+        outcome, ptp = 'EXPIRED', None
+        end = min(i + 1 + lookahead, n)
+        for k in range(i + 1, end):
+            c = candles[k]
+            stopped = (c['low'] <= stop) if sgn > 0 else (c['high'] >= stop)
+            if stopped:
+                outcome, ptp = 'STOP', stop
+                break
+            hit = None
+            for idx, tp in enumerate(tps):
+                if (sgn > 0 and c['high'] >= tp) or (sgn < 0 and c['low'] <= tp):
+                    hit = idx
+                    break
+            if hit is not None:
+                outcome, ptp = f'TP{hit + 1}', tps[hit]
+                break
+        risk = abs(entry - stop)
+        if outcome == 'STOP':
+            pts, res = -1.0, 'LOSS'
+        elif outcome and outcome.startswith('TP'):
+            pts, res = round(abs(ptp - entry) / risk, 3), 'WIN'
+        else:
+            pts, res = round(sgn * (candles[end - 1]['close'] - entry) / risk, 3), 'NEUTRAL'
+        trades.append({
+            'pattern': sig.pattern, 'direction': sig.direction,
+            'd_bar': sig.bars['D'], 'entry_bar': i + 1, 'levels':
+            {'entry': entry, 'stop': stop,
+             **{f'tp{k}': v for k, v in enumerate(tps, 1)}},
+            'outcome': outcome, 'result': res, 'pts_r': round(pts, 3),
+        })
+        open_until = i + lookahead
+    stats = _trade_stats(trades)
     return {'trades': trades, 'stats': stats}
