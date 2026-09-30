@@ -164,6 +164,45 @@ def _grade(ratios, bounds):
     return round(sum(accs) / len(accs), 4)
 
 
+def _pivot_confirm_bars(highs, lows, *, deviation=0.03, backstep: int = 3,
+                        depth: int = 10):
+    """Same walk as `zigzag_pivots`, but also returns the bar at which each
+    confirmed pivot becomes known (the index of the reversing candidate that
+    confirmed it). A prefix highs[:i+1] has confirmed pivot j iff
+    i >= confirm_bar[j] — so the causal backtest can compute the full pivot
+    list ONCE and decide tradability per bar without rescanning history."""
+    n = len(highs)
+    if n < 3:
+        return [], {}
+    cands: list[tuple[int, float, str]] = []
+    for i in range(n):
+        lo = max(0, i - backstep)
+        hi = min(n, i + backstep + 1)
+        if highs[i] == max(highs[lo:hi]) and hi - lo >= 2:
+            cands.append((i, highs[i], 'H'))
+        if lows[i] == min(lows[lo:hi]) and hi - lo >= 2:
+            cands.append((i, lows[i], 'L'))
+    cands.sort()
+    out: list[Pivot] = []
+    confirm: dict[int, int] = {}
+    cur_i, cur_p, cur_k = -1, 0.0, ''
+    for (i, p, k) in cands:
+        if i <= cur_i:
+            continue
+        if k == cur_k:
+            if (k == 'H' and p >= cur_p) or (k == 'L' and p <= cur_p):
+                cur_i, cur_p = i, p
+            continue
+        if cur_i < 0:
+            cur_i, cur_p, cur_k = i, p, k
+            continue
+        if abs(p - cur_p) >= deviation * cur_p and (i - cur_i) >= depth:
+            out.append(Pivot(cur_i, cur_k, cur_p))
+            confirm[cur_i] = i  # pivot at cur_i is known once bar i appears
+            cur_i, cur_p, cur_k = i, p, k
+    return out, confirm
+
+
 def scan_harmonics(highs, lows, *, zigzag_kwargs=None, min_gap: int = 1):
     """Detect harmonic patterns over the zigzag pivot list.
 
@@ -448,11 +487,24 @@ def backtest_causal(candles, highs, lows, *, stop_atr=1.0, tp_atrs=(1.5, 3.0, 6.
     trade per D pivot. Conservative in-bar rule: stop checked before
     targets. Returns {'trades': [...], 'stats': ...} like
     backtest_harmonics.
+
+    Performance: the full pivot list + all signals are computed ONCE; a
+    signal is tradable at bar i iff its D pivot's confirmation bar < i
+    (a prefix [0..i] has confirmed pivot j exactly when i >= confirm[j]).
+    This is O(n * #signals) rather than the O(n * pivots**5) of rescanning
+    history at every bar, and produces the identical trade sequence.
     """
     n = len(candles)
     atr = atr_series(candles)
     zk = dict(deviation=0.03, backstep=3, depth=10)
     zk.update(zigzag_kwargs or {})
+    # Compute the full pivot set + all signals ONCE.
+    _, confirm = _pivot_confirm_bars(
+        highs, lows, deviation=zk['deviation'],
+        backstep=int(zk['backstep']), depth=int(zk['depth']))
+    sigs_all = scan_harmonics(highs, lows, zigzag_kwargs=zk, min_gap=min_gap)
+    # Per D index, the best-accuracy signal (scan_harmonics already caps 3
+    # per D sorted by accuracy desc; we need the single best for selection).
     trades = []
     traded_d: set[int] = set()
     open_until = -1
@@ -461,17 +513,18 @@ def backtest_causal(candles, highs, lows, *, stop_atr=1.0, tp_atrs=(1.5, 3.0, 6.
             continue
         if atr[i] <= 0:
             continue
-        # pivots on history up to i; a signal is tradable iff its D pivot
-        # was confirmed strictly before bar i
-        sigs = scan_harmonics(highs[:i + 1], lows[:i + 1],
-                              zigzag_kwargs=zk, min_gap=min_gap)
-        fresh = [s for s in sigs
-                 if s.bars['D'] < i and s.bars['D'] not in traded_d]
+        # signals whose D pivot is confirmed before bar i and not yet traded.
+        # confirm[j] <= i exactly reproduces the old per-bar prefix scan
+        # (highs[:i+1] includes a pivot confirmed at bar i); j < i follows
+        # since confirm[j] >= j+1.
+        fresh = [s for s in sigs_all
+                 if s.bars['D'] < i
+                 and confirm.get(s.bars['D'], 10**18) <= i
+                 and s.bars['D'] not in traded_d]
         if not fresh:
             continue
         sig = max(fresh, key=lambda s: (s.bars['D'], s.accuracy))
         traded_d.add(sig.bars['D'])
-        D = sig.points['D']
         sgn = 1 if sig.direction == 'bullish' else -1
         entry = candles[i]['close']
         stop = entry - sgn * stop_atr * atr[i]

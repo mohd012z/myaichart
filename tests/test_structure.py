@@ -13,6 +13,7 @@ from myaichart.features.structure import (
     ELLIOTT_TARGETS,
     PATTERN_SPECS,
     Pivot,
+    _pivot_confirm_bars,
     atr_series,
     backtest_causal,
     backtest_harmonics,
@@ -297,3 +298,33 @@ def test_backtest_causal_oscillating_series_produces_trades():
     # stats aggregate over the same patterns
     total = sum(s['n'] for s in res['stats'].values())
     assert total == len(res['trades'])
+
+
+def test_pivot_confirm_bars_match_zigzag_pivots():
+    """_pivot_confirm_bars must yield the SAME confirmed pivots (index/kind/
+    price) as zigzag_pivots, plus a confirmation bar for each. The
+    confirmation bar is always > the pivot index (a pivot is known only after
+    a later reversal)."""
+    import math
+    prices = [100 + 8 * math.sin(i / 9.0) for i in range(400)]
+    highs = [max(prices[i], prices[i - 1]) for i in range(len(prices))]
+    lows = [min(prices[i], prices[i - 1]) for i in range(len(prices))]
+    ref = zigzag_pivots(highs, lows, deviation=0.03, backstep=3, depth=10)
+    piv, confirm = _pivot_confirm_bars(highs, lows, deviation=0.03,
+                                       backstep=3, depth=10)
+    assert [(p.index, p.kind, p.price) for p in piv] == \
+           [(p.index, p.kind, p.price) for p in ref]
+    for p in piv:
+        assert confirm[p.index] > p.index  # confirmed strictly later
+
+
+def test_backtest_causal_is_deterministic():
+    import math
+    prices = [100 + 8 * math.sin(i / 9.0) for i in range(500)]
+    candles = _ohlc(prices)
+    highs = [c['high'] for c in candles]
+    lows = [c['low'] for c in candles]
+    a = backtest_causal(candles, highs, lows, lookahead=60)
+    b = backtest_causal(candles, highs, lows, lookahead=60)
+    assert [t['entry_bar'] for t in a['trades']] == [t['entry_bar'] for t in b['trades']]
+    assert [t['pts_r'] for t in a['trades']] == [t['pts_r'] for t in b['trades']]
