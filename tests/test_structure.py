@@ -217,9 +217,12 @@ def test_backtest_invalidates_and_tps():
                          {'XAB': 0.6, 'ABC': 0.6, 'BCD': 1.6, 'XAD': 0.9})
     lv = trade_levels(sig)
     assert lv['entry'] > sig.points['D'] > lv['sl']
-    # INVALIDATED: entry bar drops through D (60) -> pattern fails
+    # INVALIDATED: entry bar drops through D (60) -> pattern fails,
+    # closed at D = a loss of 0.705R (entry 95.25, D 60, R 50)
     res = backtest_harmonics(_ohlc([90.0, 85.0, 55.0, 50.0]), [sig])
     assert res['trades'][0]['outcome'] == 'INVALIDATED'
+    assert res['trades'][0]['result'] == 'LOSS'
+    assert abs(res['trades'][0]['pts_r'] - (-0.705)) < 1e-3
     # TP1: entry bar rises to tp1 without ever breaking D
     res = backtest_harmonics(_ohlc([90.0, 85.0, 240.0, 250.0]), [sig])
     assert res['trades'][0]['outcome'] == 'TP1'

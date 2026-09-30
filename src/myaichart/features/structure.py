@@ -313,14 +313,25 @@ def elliot_impulse(pivots, direction='bullish'):
 
 # ---------------------------------------------------------------------------
 # Backtest (entry on bar D+1; per bar the D invalidation line is checked
-# before TP — with the verified AD rule the stop sits at entry-AD, i.e. at
-# D, so breaking D IS the stop; no spread; first level touched closes the
-# trade)
+# before TP — D is the NEAREST protective level: SL = entry − s·AD =
+# D − s·0.295·AD sits BEYOND D, so breaking D always precedes the printed
+# SL. A D-break therefore closes the trade AT D as a loss of −0.705R
+# (entry is 0.705R beyond D); the SL line is kept in `levels` for
+# charting but is unreachable in this model. Conservative in-bar rule:
+# when both a protective level and a TP are touched in one bar, the
+# protective level is assumed first — OHLC data cannot prove the
+# intra-bar order. No spread.)
 # ---------------------------------------------------------------------------
 
 def backtest_harmonics(candles, signals, *, lookahead=120):
     """candles: [{'open','high','low','close'} ...] ascending, indexed by bar.
-    Returns {'trades': [...], 'stats': per-pattern aggregates}."""
+    Returns {'trades': [...], 'stats': per-pattern aggregates}.
+
+    Scoring (pts_r = P&L in R where R = |entry − SL| = AD):
+      INVALIDATED  -> LOSS  at −0.705 (closed at D)
+      TP1/TP2/TP3  -> WIN   at +2.70 / +4.83 / +6.33
+      EXPIRED      -> NEUTRAL at close-based P&L in R (time stop).
+    """
     trades = []
     seen: set[int] = set()
     for sig in signals:
@@ -330,12 +341,14 @@ def backtest_harmonics(candles, signals, *, lookahead=120):
         seen.add(db)
         lv = trade_levels(sig)
         bull = sig.direction == 'bullish'
+        s = 1 if bull else -1
+        D = sig.points['D']
         outcome, ptp = 'EXPIRED', None
         for k in range(db + 1, min(db + 1 + lookahead, len(candles))):
             c = candles[k]
             if bull:
-                if c['low'] <= sig.points['D']:
-                    outcome, ptp = 'INVALIDATED', None
+                if c['low'] <= D:
+                    outcome, ptp = 'INVALIDATED', D
                     break
                 hit = None
                 for tp in ('tp1', 'tp2', 'tp3'):
@@ -346,8 +359,8 @@ def backtest_harmonics(candles, signals, *, lookahead=120):
                     outcome, ptp = hit.upper(), lv[hit]
                     break
             else:
-                if c['high'] >= sig.points['D']:
-                    outcome, ptp = 'INVALIDATED', None
+                if c['high'] >= D:
+                    outcome, ptp = 'INVALIDATED', D
                     break
                 hit = None
                 for tp in ('tp1', 'tp2', 'tp3'):
@@ -358,12 +371,17 @@ def backtest_harmonics(candles, signals, *, lookahead=120):
                     outcome, ptp = hit.upper(), lv[hit]
                     break
         risk = abs(lv['entry'] - lv['sl'])
-        if outcome in ('TP1', 'TP2', 'TP3') and risk:
-            pts, res = abs(ptp - lv['entry']) / risk, 'WIN'
-        elif outcome == 'SL':
-            pts, res = -1.0, 'LOSS'
-        else:
+        if risk == 0:
             pts, res = 0.0, 'NEUTRAL'
+        elif outcome == 'INVALIDATED':
+            # stopped at D: entry is 0.705R beyond D, in the loss direction
+            pts, res = s * (ptp - lv['entry']) / risk, 'LOSS'
+        elif outcome in ('TP1', 'TP2', 'TP3'):
+            pts, res = abs(ptp - lv['entry']) / risk, 'WIN'
+        else:
+            # time stop: mark at the last close actually traded
+            last_close = candles[min(db + 1 + lookahead, len(candles)) - 1]['close']
+            pts, res = round(s * (last_close - lv['entry']) / risk, 3), 'NEUTRAL'
         trades.append({
             'pattern': sig.pattern, 'direction': sig.direction,
             'd_bar': db, 'entry_bar': db + 1, 'levels': lv,
