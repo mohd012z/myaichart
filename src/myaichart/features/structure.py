@@ -143,10 +143,10 @@ class HarmonicSignal:
 
 
 def _ratios_for(x, a, b, c, d):
-    xa, ab, bc, ad = abs(a - x), abs(b - a), abs(c - b), abs(d - a)
-    if min(xa, ab, bc, ad) <= 0:
+    xa, ab, bc, cd, ad = abs(a - x), abs(b - a), abs(c - b), abs(d - c), abs(d - a)
+    if min(xa, ab, bc, cd, ad) <= 0:
         return None
-    return {'XAB': xa / ab, 'ABC': ab / bc, 'BCD': bc / abs(d - c), 'XAD': xa / ad}
+    return {'XAB': xa / ab, 'ABC': ab / bc, 'BCD': bc / cd, 'XAD': xa / ad}
 
 
 def _grade(ratios, bounds):

@@ -85,6 +85,20 @@ def test_abcd_ratio_grading():
     assert g is not None and 0.5 < g < 1.0, g
 
 
+def test_ratios_for_flat_cd_disqualifies_not_crashes():
+    from myaichart.features.structure import _ratios_for
+    # Regression: SOL/XRP real data hit c == d (two pivots at the same price,
+    # non-consecutive in the XABCD window) -> BCD denominator abs(d-c) == 0.
+    # A flat leg makes the pattern undefined: return None, never
+    # ZeroDivisionError. All zero-leg cases are disqualified symmetrically.
+    assert _ratios_for(0.0, 100.0, 60.0, 90.0, 90.0) is None   # c == d
+    assert _ratios_for(0.0, 100.0, 100.0, 90.0, 30.0) is None  # a == b
+    assert _ratios_for(0.0, 0.0, 60.0, 90.0, 30.0) is None     # x == a
+    assert _ratios_for(0.0, 100.0, 60.0, 90.0, 100.0) is None  # d == a
+    # a genuinely non-flat geometry still grades
+    assert _ratios_for(0.0, 100.0, 60.0, 90.0, 30.0) is not None
+
+
 def test_gartley_grade_matches_ideals():
     from myaichart.features.structure import _ratios_for, _grade
     # Bullish Gartley geometry: X=0 A=100 B=61.8 C=85.4 D=52.9
