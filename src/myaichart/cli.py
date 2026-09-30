@@ -50,6 +50,8 @@ def build_parser():
     s=sub.add_parser('serve'); s.add_argument('symbol',nargs='?',default='XAUUSD'); s.add_argument('--timezone',default='Asia/Kuala_Lumpur'); s.add_argument('--host',default='127.0.0.1'); s.add_argument('--port',type=int,default=8000); s.add_argument('--feed',default=None,choices=[None,'okx'],help='live feed adapter (okx = OKX public WS, no key)')
     l=sub.add_parser('live'); l.add_argument('symbol'); l.add_argument('--source',default='mt5'); l.add_argument('--timezone',default='Asia/Kuala_Lumpur')
     r=sub.add_parser('replay'); r.add_argument('symbol'); r.add_argument('--from',dest='from_time'); r.add_argument('--speed',type=float,default=1); r.add_argument('--timezone',default='Asia/Kuala_Lumpur')
+    st=sub.add_parser('structure',help='zigzag + harmonic + Elliott analysis of a candle JSON file ({"ts","o","h","l","c"} rows, asc)')
+    st.add_argument('candles_file'); st.add_argument('--deviation',type=float,default=0.03); st.add_argument('--backtest',action='store_true'); st.add_argument('--out',default=None)
     return p
 
 
@@ -119,6 +121,38 @@ def main(argv=None):
         uvicorn.run(app if app is not None else create_app(),host=args.host,port=args.port); return 0
     if args.command=='live': print(json.dumps({'symbol':args.symbol,'source':args.source,'timezone':args.timezone,'status':'adapter-required'})); return 0
     if args.command=='replay': print(json.dumps({'symbol':args.symbol,'from':args.from_time,'speed':args.speed,'timezone':args.timezone,'status':'configured'})); return 0
+    if args.command=='structure': _run_structure(args); return 0
     return 0
+
+
+def _run_structure(args):
+    from myaichart.features.structure import (
+        backtest_harmonics, elliot_impulse, scan_harmonics,
+        trade_levels, zigzag_pivots,
+    )
+    rows = json.loads(Path(args.candles_file).read_text())
+    candles = [{'ts': r['ts'], 'open': float(r['o']), 'high': float(r['h']),
+                'low': float(r['l']), 'close': float(r['c'])} for r in rows]
+    highs = [c['high'] for c in candles]
+    lows = [c['low'] for c in candles]
+    piv = zigzag_pivots(highs, lows, deviation=args.deviation)
+    sigs = scan_harmonics(highs, lows, zigzag_kwargs={'deviation': args.deviation})
+    out = {
+        'candles': len(candles),
+        'pivots': [{'bar': p.index, 'kind': p.kind, 'price': p.price} for p in piv],
+        'harmonics': [{'pattern': s.pattern, 'direction': s.direction,
+                       'accuracy': s.accuracy, 'points': s.points,
+                       'd_bar': s.bars['D'], 'ratios': {k: round(v, 4) for k, v in s.ratios.items()},
+                       'levels': trade_levels(s)} for s in sigs],
+        'elliott': {'bullish': elliot_impulse(piv, 'bullish'), 'bearish': elliot_impulse(piv, 'bearish')},
+    }
+    if args.backtest:
+        bt = backtest_harmonics(candles, sigs)
+        out['backtest'] = {'stats': bt['stats'],
+                           'recent_trades': bt['trades'][-25:]}
+    text = json.dumps(out, indent=2, ensure_ascii=False)
+    if args.out:
+        Path(args.out).write_text(text)
+    print(text)
 
 if __name__=='__main__': raise SystemExit(main())
