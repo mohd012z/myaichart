@@ -13,6 +13,8 @@ from myaichart.features.structure import (
     ELLIOTT_TARGETS,
     PATTERN_SPECS,
     Pivot,
+    atr_series,
+    backtest_causal,
     backtest_harmonics,
     elliot_impulse,
     scan_harmonics,
@@ -246,5 +248,52 @@ def test_backtest_invalidates_and_tps():
     res = backtest_harmonics(_ohlc([90.0, 85.0, 80.0, 75.0]), [sig])
     assert res['trades'][0]['outcome'] == 'EXPIRED'
     assert res['trades'][0]['result'] == 'NEUTRAL'
+    # time stop is marked at the last close in R: (75 - 95.25) / 50
+    assert abs(res['trades'][0]['pts_r'] - (-0.405)) < 1e-3
     # one D bar -> exactly one trade
     assert len(res['trades']) == 1
+
+
+# ---------------------------------------------------------------------------
+# ATR series + causal (no-lookahead) backtest
+# ---------------------------------------------------------------------------
+
+def test_atr_series_known_values():
+    # flat candles -> TR 0; a 10-point range bar -> ATR rises after warmup
+    candles = [{'open': 100, 'high': 100, 'low': 100, 'close': 100} for _ in range(16)]
+    for c in candles:
+        c.update(open=100, high=100, low=100, close=100)
+    candles[15].update(high=110, low=90)  # TR = 20 at bar 15
+    atr = atr_series(candles, period=14)
+    assert atr[13] == 0.0  # warmup not complete
+    assert atr[15] > 0.0   # the 20-range bar is inside the window
+    assert atr[15] < 20.0  # averaged over 14 bars (13 of them zero)
+
+
+def test_backtest_causal_no_trades_on_flat_data():
+    # a flat series has no pivots -> no signals -> no trades, stats empty
+    candles = _ohlc([100.0] * 200)
+    res = backtest_causal(candles, [c['high'] for c in candles],
+                          [c['low'] for c in candles])
+    assert res['trades'] == []
+    assert res['stats'] == {}
+
+
+def test_backtest_causal_oscillating_series_produces_trades():
+    # oscillating series: zigzag confirms alternating pivots and AB=CD
+    # patterns complete; verifies the causal entry fires and scores.
+    import math
+    prices = [100 + 8 * math.sin(i / 9.0) for i in range(300)]
+    candles = _ohlc(prices)
+    highs = [c['high'] for c in candles]
+    lows = [c['low'] for c in candles]
+    res = backtest_causal(candles, highs, lows, lookahead=60)
+    assert len(res['trades']) >= 1
+    for t in res['trades']:
+        assert t['result'] in ('WIN', 'LOSS', 'NEUTRAL')
+        assert isinstance(t['pts_r'], float)
+        # no lookahead: entry bar must be strictly after the D pivot bar
+        assert t['entry_bar'] > t['d_bar']
+    # stats aggregate over the same patterns
+    total = sum(s['n'] for s in res['stats'].values())
+    assert total == len(res['trades'])
