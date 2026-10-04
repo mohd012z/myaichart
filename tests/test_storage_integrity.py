@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import lzma, struct
 from myaichart.models import NormalizedTick
@@ -87,6 +87,61 @@ def test_verify_dataset_counts_ticks_through_store_api(tmp_path):
     from myaichart.data.integrity import verify_dataset
     report = verify_dataset(tmp_path, 'XAUUSD')
     assert report['raw_tick_count'] == 3
+
+
+def test_dedupe_window_bounded_and_repeated_chunk_still_deduped(tmp_path, monkeypatch):
+    import myaichart.data.storage as storage_mod
+    monkeypatch.setattr(storage_mod, '_PARQUET', False)
+    monkeypatch.setattr(storage_mod, 'MAX_DEDUPE_IDENTITY_WINDOW', 2)
+    store = RawTickStore(tmp_path)
+    ts0 = datetime(2026, 9, 25, 8, 0, 0, tzinfo=timezone.utc)
+    tick = NormalizedTick(symbol='XAUUSD', source='fixture', source_record_id='dup',
+        source_timestamp_utc=ts0, received_timestamp_utc=ts0, bid=1.0, ask=1.1)
+    store.append_chunk([tick])
+    # a second part file for the same day that overlaps on identity (simulates
+    # a backfill chunk whose range intersects the original chunk)
+    import shutil
+    day = store.root / 'raw' / 'XAUUSD' / 'date=2026-09-25'
+    part = sorted(day.glob('part-*.jsonl'))[0]
+    twin = day / 'part-9999999999999-deadbeef.jsonl'
+    shutil.copy(part, twin)
+    # cross-file overlap is still deduped even with a tiny window
+    got = list(store.iter_all('XAUUSD'))
+    assert [t.source_record_id for t in got] == ['dup']
+    # window bound: 5 distinct days -> 5 identities scanned with window=2
+    for i in range(5):
+        ts = datetime(2026, 10, 1 + i, 8, 0, 0, tzinfo=timezone.utc)
+        store.append_chunk([NormalizedTick(symbol='XAUUSD', source='fixture', source_record_id=f'e{i}',
+            source_timestamp_utc=ts, received_timestamp_utc=ts, bid=1.0, ask=1.1)])
+    base_evictions = store.dedupe_evictions
+    for _ in store.iter_all('XAUUSD'):
+        pass
+    # 5 distinct identities in a window of 2 -> at least one eviction, counted
+    assert store.dedupe_evictions > base_evictions
+
+
+def test_format_mix_between_runs_fails_closed(tmp_path, monkeypatch):
+    import myaichart.data.storage as storage_mod
+    # run 1 without pyarrow -> jsonl part on disk
+    monkeypatch.setattr(storage_mod, '_PARQUET', False)
+    store = RawTickStore(tmp_path)
+    ts0 = datetime(2026, 9, 25, 8, 0, 0, tzinfo=timezone.utc)
+    tick = NormalizedTick(symbol='XAUUSD', source='fixture', source_record_id='a',
+        source_timestamp_utc=ts0, received_timestamp_utc=ts0, bid=1.0, ask=1.1)
+    store.append_chunk([tick])
+    day = store.root / 'raw' / 'XAUUSD' / 'date=2026-09-25'
+    assert any(day.glob('part-*.jsonl'))
+    # run 2 with pyarrow available, new tick for the same day -> must NOT
+    # silently write a .parquet twin of the same day (reader would double-serve)
+    monkeypatch.setattr(storage_mod, '_PARQUET', True)
+    ts1 = ts0 + timedelta(minutes=1)
+    tick2 = tick.model_copy(update={'source_record_id': 'b', 'source_timestamp_utc': ts1, 'received_timestamp_utc': ts1})
+    try:
+        store.append_chunk([tick2])
+        raise AssertionError('expected ValueError for format mix')
+    except ValueError as e:
+        assert 'format mix' in str(e)
+    assert not any(day.glob('part-*.parquet'))
 
 
 def test_candle_store_writes_and_reads_processed_bars(tmp_path):

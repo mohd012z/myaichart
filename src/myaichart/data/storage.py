@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import OrderedDict
 from pathlib import Path
 from typing import Iterator
 from myaichart.models import NormalizedTick
@@ -14,6 +15,12 @@ except Exception:
     pd = None
     _PARQUET = False
 
+# Bounded dedupe identity window for full-scan iteration. The disk parts are
+# already idempotent by content-addressed name, so the in-memory dedupe only
+# covers overlap between files; a bounded window keeps a million-tick symbol
+# scan from holding ~90 MB of identity tuples forever.
+MAX_DEDUPE_IDENTITY_WINDOW = 200_000
+
 
 class RawTickStore:
     """Immutable, idempotent raw tick store.
@@ -25,6 +32,7 @@ class RawTickStore:
 
     def __init__(self, root: Path):
         self.root = Path(root)
+        self.dedupe_evictions: int = 0
 
     def append_chunk(self, ticks: list[NormalizedTick]) -> None:
         if not ticks:
@@ -36,11 +44,23 @@ class RawTickStore:
         for (symbol, day), group in by_day.items():
             group = sorted(group, key=lambda t: (t.source_timestamp_utc, t.source, t.source_record_id))
             out = self.root / 'raw' / symbol / f'date={day}'
+            suffix = 'parquet' if _PARQUET else 'jsonl'
+            existing = set(out.glob('part-*')) if out.exists() else set()
+            for part in existing:
+                other = 'jsonl' if part.suffix == '.parquet' else 'parquet'
+                if part.suffix != f'.{suffix}':
+                    # A format flip (pyarrow appearing/disappearing between
+                    # runs) would make a re-append write BOTH .jsonl and
+                    # .parquet for the same day, and the reader would return
+                    # every tick twice. Fail closed instead of duplicating.
+                    raise ValueError(
+                        f'format mix in {out}: existing .{other} part(s) but '
+                        f'current format is .{suffix}; rebuild the day partition in one format'
+                    )
             out.mkdir(parents=True, exist_ok=True)
             digest = _chunk_digest(group)
-            suffix = '.parquet' if _PARQUET else '.jsonl'
             first_ms = int(group[0].source_timestamp_utc.timestamp() * 1000)
-            path = out / f'part-{first_ms:013d}-{digest}{suffix}'
+            path = out / f'part-{first_ms:013d}-{digest}.{suffix}'
             if path.exists():
                 return
             if _PARQUET:
@@ -68,12 +88,16 @@ class RawTickStore:
                     yield NormalizedTick.model_validate(row)
 
     def iter_all(self, symbol: str, *, dedupe: bool = True):
-        seen: set[tuple[str, str]] = set()
+        seen: OrderedDict[tuple[str, str], None] = OrderedDict()
         for tick in self._iter_files(symbol):
             identity = (tick.source, tick.source_record_id)
-            if dedupe and identity in seen:
-                continue
-            seen.add(identity)
+            if dedupe:
+                if identity in seen:
+                    continue
+                seen[identity] = None
+                if len(seen) > MAX_DEDUPE_IDENTITY_WINDOW:
+                    seen.popitem(last=False)
+                    self.dedupe_evictions += 1
             yield tick
 
     def iter_range(self, symbol, start_utc, end_utc):
