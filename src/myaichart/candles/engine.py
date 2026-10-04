@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Iterable
@@ -111,15 +112,29 @@ class CandleUpdate:
 
 
 class CandleEngine:
-    def __init__(self, timeframes: Iterable[str], profile: BoundaryProfile, *, grace_seconds: float = 2.0, source_offset_minutes: int = 0):
+    def __init__(self, timeframes: Iterable[str], profile: BoundaryProfile, *, grace_seconds: float = 2.0, source_offset_minutes: int = 0, max_closed: int = 2048):
+        if max_closed < 2:
+            raise ValueError('max_closed must be >= 2 (keeps the last closed candle for grace-window corrections)')
         self.timeframes = tuple(timeframes)
         self.profile = profile
         self.grace_seconds = float(grace_seconds)
         self.source_offset_minutes = int(source_offset_minutes)
+        self.max_closed = int(max_closed)
         self._active: dict[str, _Accumulator] = {}
         self._closed: dict[str, list[_Closed]] = {tf: [] for tf in self.timeframes}
-        self.revisions: list[CandleRevision] = []
+        # Bounded, not a data store: the durable record is the RawTickStore on
+        # disk (SHA-256 chunk digests), from which candles can be re-derived
+        # (`myaichart aggregate`). Evicted entries are cache overflow only, and
+        # counted here so a consumer can see the window slid.
+        self.retention_overflow: int = 0
+        self.revisions: deque[CandleRevision] = deque(maxlen=1024)
         self._clock: datetime | None = None
+
+    def _prune_closed(self, tf: str) -> None:
+        closed = self._closed[tf]
+        if len(closed) > self.max_closed:
+            self.retention_overflow += len(closed) - self.max_closed
+            del closed[:-self.max_closed]
 
     def _bounds(self, ts: datetime, tf: str):
         return bucket_bounds(ts, tf, self.profile, source_offset_minutes=self.source_offset_minutes)
@@ -129,6 +144,7 @@ class CandleEngine:
         if active is not None and now >= active.end:
             self._closed[tf].append(_Closed(active, CandleState.PROVISIONALLY_CLOSED))
             del self._active[tf]
+            self._prune_closed(tf)
         if self._closed[tf]:
             last = self._closed[tf][-1]
             if last.state == CandleState.PROVISIONALLY_CLOSED and now >= last.accumulator.end + timedelta(seconds=self.grace_seconds):
