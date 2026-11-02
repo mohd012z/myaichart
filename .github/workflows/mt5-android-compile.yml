@@ -39,6 +39,10 @@ jobs:
             mt-native-modmenu/src/ResponsiveMenu.kt \
             mt-native-modmenu/src/FundamentalResearch.kt \
             mt-native-modmenu/src/PolicyLanguage.kt \
+            mt-native-modmenu/src/SymbolCatalog.kt \
+            mt-native-modmenu/src/EconomicCalendar.kt \
+            mt-native-modmenu/src/CandleCapture.kt \
+            mt-native-modmenu/src/BbmaSymbolSelector.kt \
             mt-native-modmenu/src/ResearchEvidenceGate.kt \
             mt-native-modmenu/src/ChartScreenshotCapture.kt \
             mt-native-modmenu/src/ScreenshotPreview.kt \
@@ -65,6 +69,10 @@ jobs:
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/FundamentalResearch.kt mt-native-modmenu/src/PolicyLanguage.kt mt-native-modmenu/tests/PolicyLanguageTests.kt -include-runtime -d /tmp/policy-language.jar
           java -jar /tmp/policy-language.jar
+      - name: Verify event mapping and symbol catalog
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/ChartProjection.kt mt-native-modmenu/src/SymbolCatalog.kt mt-native-modmenu/src/EconomicCalendar.kt mt-native-modmenu/tests/EconomicCalendarTests.kt -include-runtime -d /tmp/economic-events.jar
+          java -jar /tmp/economic-events.jar
       - name: Run pure Kotlin regression tests
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/tests/IndicatorTests.kt -include-runtime -d /tmp/indicators.jar
