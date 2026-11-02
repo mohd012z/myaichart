@@ -47,6 +47,7 @@ jobs:
             mt-native-modmenu/src/ClosedBarAlignment.kt \
             mt-native-modmenu/src/ZoneSelection.kt \
             mt-native-modmenu/src/ZoneResearchPipeline.kt \
+            mt-native-modmenu/src/ZoneChartCoordinator.kt \
             mt-native-modmenu/src/ZoneProjection.kt \
             mt-native-modmenu/src/SupplyDemandOverlayView.kt \
             mt-native-modmenu/src/EconomicCalendar.kt \
