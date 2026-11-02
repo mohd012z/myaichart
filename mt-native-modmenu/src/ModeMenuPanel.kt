@@ -14,7 +14,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 
 /** Host-owned floating controls. Parent must be an independently verified chart ViewGroup. */
-class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): FrameLayout(context) {
+class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, private val onScreenshotRequested: (() -> Unit)? = null): FrameLayout(context) {
  private val preferences=context.getSharedPreferences("mt_bbma_mode_menu",Context.MODE_PRIVATE)
  private var state=ModeMenuState(visible=preferences.getBoolean("expanded",false))
  private val density=resources.displayMetrics.density
@@ -82,6 +82,26 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): Fra
    }
    options.addView(cb,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   }
+  val screenshot=Button(context).apply {
+   text="Screenshot · Review"
+   setAllCaps(false)
+   contentDescription="Request screenshot with consent"
+   isEnabled=onScreenshotRequested!=null
+   setOnClickListener { onScreenshotRequested?.invoke() }
+  }
+  options.addView(screenshot,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)))
+  val research=Button(context).apply {
+   text="Fundamental · Global sources"
+   setAllCaps(false)
+   contentDescription="Open public central bank research sources"
+   setOnClickListener {
+    val uri=android.net.Uri.parse("https://www.bis.org/cbanks.htm")
+    val intent=android.content.Intent(android.content.Intent.ACTION_VIEW,uri)
+    try { context.startActivity(intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+    catch (_:android.content.ActivityNotFoundException) { isEnabled=false }
+   }
+  }
+  options.addView(research,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)))
   floating.addView(optionScroll,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   addView(floating,LayoutParams(dp(240),ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.TOP or Gravity.START))
   refresh()
