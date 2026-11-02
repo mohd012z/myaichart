@@ -15,7 +15,10 @@ object ClosedBarAlignment {
 }
 object AlignedMultiTimeframeZones {
  fun analyze(series:Map<ZoneKey,Pair<ZoneTimeframe,List<Candle>>>,asOfMs:Long,config:ZoneConfig=ZoneConfig()):Map<ZoneKey,List<EvaluatedZone>> {
-  val aligned=series.mapValues{(_,pair)->ClosedBarAlignment.filter(pair.second,pair.first,asOfMs)}
+  val aligned=series.mapValues{(key,pair)->
+   require(key.timeframe==pair.first.name){"Timeframe key does not match candle duration"}
+   ClosedBarAlignment.filter(pair.second,pair.first,asOfMs)
+  }
   return MultiTimeframeZones.analyze(aligned,asOfMs,config)
  }
 }
