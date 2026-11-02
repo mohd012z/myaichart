@@ -41,7 +41,7 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): Fra
  private var restored=false
  private val header=Button(context).apply {
   text="☰ BBMA · Drag"
-  isAllCaps=false
+  setAllCaps(false)
   setOnTouchListener { _:View,event:MotionEvent ->
    when(event.actionMasked) {
     MotionEvent.ACTION_DOWN -> {
