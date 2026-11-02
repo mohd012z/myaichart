@@ -15,7 +15,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 
 /** Host-owned floating controls. Parent must be an independently verified chart ViewGroup. */
-class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, private val onScreenshotRequested: (() -> Unit)? = null): FrameLayout(context) {
+class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, private val onScreenshotRequested: (() -> Unit)? = null, private val zoneOverlay: SupplyDemandOverlayView? = null): FrameLayout(context) {
  private val preferences=context.getSharedPreferences("mt_bbma_mode_menu",Context.MODE_PRIVATE)
  private var state=ModeMenuState(visible=preferences.getBoolean("expanded",false))
  private val density=resources.displayMetrics.density
@@ -153,8 +153,10 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
  }
  private fun updateOverlayAppearance(){
   floating.alpha=overlaySettings.opacity/100f
+  zoneOverlay?.setZoneVisible(OverlayLayer.SUPPLY_DEMAND in overlaySettings.enabled)
+  zoneOverlay?.setZoneOpacity(overlaySettings.opacity)
   layerChecks.forEach{(layer,check)->check.isChecked=layer in overlaySettings.enabled}
-  // Non-BBMA layers require their own validated renderer; toggles only store visibility intent.
+  // Other research layers require their own validated renderers.
  }
  private fun moveTo(x:Float,y:Float) {
   val p=ResponsiveMenu.place(MenuBounds(width,height),MenuBounds(floating.width,floating.height),x,y)
