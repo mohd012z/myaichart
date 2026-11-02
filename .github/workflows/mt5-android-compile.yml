@@ -103,7 +103,7 @@ jobs:
           java -jar /tmp/closed-bar.jar
       - name: Verify bounded zone selection
         run: |
-          ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/SymbolCatalog.kt mt-native-modmenu/src/SupplyDemand.kt mt-native-modmenu/src/ZoneLifecycle.kt mt-native-modmenu/src/ClosedBarAlignment.kt mt-native-modmenu/src/ZoneSelection.kt mt-native-modmenu/tests/ZoneSelectionTests.kt -include-runtime -d /tmp/zone-selection.jar
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/SymbolCatalog.kt mt-native-modmenu/src/SupplyDemand.kt mt-native-modmenu/src/ZoneLifecycle.kt mt-native-modmenu/src/MultiTimeframeZones.kt mt-native-modmenu/src/ClosedBarAlignment.kt mt-native-modmenu/src/ZoneSelection.kt mt-native-modmenu/tests/ZoneSelectionTests.kt -include-runtime -d /tmp/zone-selection.jar
           java -jar /tmp/zone-selection.jar
       - name: Run pure Kotlin regression tests
         run: |
