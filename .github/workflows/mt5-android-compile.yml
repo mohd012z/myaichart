@@ -40,6 +40,7 @@ jobs:
             mt-native-modmenu/src/FundamentalResearch.kt \
             mt-native-modmenu/src/PolicyLanguage.kt \
             mt-native-modmenu/src/SymbolCatalog.kt \
+            mt-native-modmenu/src/OverlayControls.kt \
             mt-native-modmenu/src/EconomicCalendar.kt \
             mt-native-modmenu/src/CandleCapture.kt \
             mt-native-modmenu/src/BbmaSymbolSelector.kt \
@@ -73,6 +74,10 @@ jobs:
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/ChartProjection.kt mt-native-modmenu/src/SymbolCatalog.kt mt-native-modmenu/src/EconomicCalendar.kt mt-native-modmenu/tests/EconomicCalendarTests.kt -include-runtime -d /tmp/economic-events.jar
           java -jar /tmp/economic-events.jar
+      - name: Verify independent overlay controls
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/OverlayControls.kt mt-native-modmenu/tests/OverlayControlsTests.kt -include-runtime -d /tmp/overlay-controls.jar
+          java -jar /tmp/overlay-controls.jar
       - name: Run pure Kotlin regression tests
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/tests/IndicatorTests.kt -include-runtime -d /tmp/indicators.jar
