@@ -1,41 +1,99 @@
 package mt.nativeaddon
+
 import android.content.Context
 import android.graphics.Color
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-/** Host-owned panel; attach only after validating chart host. */
-class ModeMenuPanel(context:Context,private val overlay:BbmaOverlayView):FrameLayout(context){
+
+/** Host-owned floating controls. Parent must be an independently verified chart ViewGroup. */
+class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): FrameLayout(context) {
  private var state=ModeMenuState()
- private val panel=LinearLayout(context).apply{
+ private val density=resources.displayMetrics.density
+ private fun dp(value:Int)=(value*density+0.5f).toInt()
+ private val floating=LinearLayout(context).apply {
   orientation=LinearLayout.VERTICAL
-  setBackgroundColor(Color.argb(235,20,25,35))
-  setPadding(16,12,16,12)
+  setBackgroundColor(Color.argb(240,20,25,35))
+  elevation=dp(8).toFloat()
  }
- init{
-  val toggle=Button(context).apply{text="BBMA";setOnClickListener{dispatch(ModeMenuReducer.Action.TOGGLE_MENU)}}
-  addView(toggle,LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.TOP or Gravity.END))
-  val options=listOf(
+ private val options=LinearLayout(context).apply {
+  orientation=LinearLayout.VERTICAL
+  setPadding(dp(12),dp(4),dp(12),dp(10))
+ }
+ private var userMoved=false
+ private var savedX=0f
+ private var savedY=0f
+ private var downRawX=0f
+ private var downRawY=0f
+ private var startX=0f
+ private var startY=0f
+ private var dragging=false
+ private val header=Button(context).apply {
+  text="☰ BBMA · Drag"
+  setAllCaps(false)
+  setOnClickListener { if(!dragging) dispatch(ModeMenuReducer.Action.TOGGLE_MENU) }
+  setOnTouchListener { _:View,event:MotionEvent ->
+   when(event.actionMasked) {
+    MotionEvent.ACTION_DOWN -> {downRawX=event.rawX;downRawY=event.rawY;startX=floating.x;startY=floating.y;dragging=false;false}
+    MotionEvent.ACTION_MOVE -> {
+     val dx=event.rawX-downRawX;val dy=event.rawY-downRawY
+     if(!dragging && (kotlin.math.abs(dx)>dp(8)||kotlin.math.abs(dy)>dp(8))) dragging=true
+     if(dragging){moveTo(startX+dx,startY+dy);true}else false
+    }
+    MotionEvent.ACTION_UP -> {
+     if(dragging){dragging=false;userMoved=true;true}else false
+    }
+    MotionEvent.ACTION_CANCEL -> {dragging=false;false}
+    else -> false
+   }
+  }
+ }
+ init {
+  clipChildren=false
+  floating.addView(header,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)))
+  val definitions=listOf(
    "Enable BBMA" to ModeMenuReducer.Action.TOGGLE_OVERLAY,
    "Bollinger Bands" to ModeMenuReducer.Action.TOGGLE_BANDS,
    "EMA 50" to ModeMenuReducer.Action.TOGGLE_EMA50,
    "LWMA 5 High/Low" to ModeMenuReducer.Action.TOGGLE_LWMA5,
    "LWMA 10 High/Low" to ModeMenuReducer.Action.TOGGLE_LWMA10
   )
-  options.forEach{(label,action)->
-   val cb=CheckBox(context).apply{text=label;setTextColor(Color.WHITE);setOnClickListener{dispatch(action)}}
-   panel.addView(cb)
+  definitions.forEach { (label,action) ->
+   val cb=CheckBox(context).apply {
+    text=label;setTextColor(Color.WHITE);minHeight=dp(44)
+    setOnClickListener { dispatch(action) }
+   }
+   options.addView(cb,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   }
-  addView(panel,LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.TOP or Gravity.START))
+  floating.addView(options,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
+  addView(floating,LayoutParams(dp(240),ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.TOP or Gravity.START))
   refresh()
+  addOnLayoutChangeListener { _,_,_,_,_,_,_,_,_ -> reposition() }
  }
- private fun dispatch(a:ModeMenuReducer.Action){state=ModeMenuReducer.apply(state,a);refresh()}
+ private fun moveTo(x:Float,y:Float) {
+  val p=MenuPlacement.clamp(x,y,floating.width,floating.height,width,height)
+  savedX=p.x;savedY=p.y;floating.x=p.x;floating.y=p.y
+ }
+ private fun reposition(){
+  if(width<=0||height<=0)return
+  if(!userMoved){
+   val p=MenuPlacement.default(floating.width,floating.height,width,height,dp(12))
+   moveTo(p.x,p.y)
+  } else moveTo(savedX,savedY)
+ }
+ private fun dispatch(action:ModeMenuReducer.Action){
+  state=ModeMenuReducer.apply(state,action);refresh()
+  floating.post { reposition() }
+ }
  private fun refresh(){
-  panel.visibility=if(state.visible) VISIBLE else GONE
-  val selected=buildSet{
+  options.visibility=if(state.visible) VISIBLE else GONE
+  header.contentDescription=if(state.visible)"BBMA options expanded. Drag to move" else "BBMA options collapsed. Drag to move"
+  val selected=buildSet {
    if(state.enabled){
     if(state.showBands){add(BbmaOverlayView.Line.BB_UPPER);add(BbmaOverlayView.Line.BB_MIDDLE);add(BbmaOverlayView.Line.BB_LOWER)}
     if(state.showEma50)add(BbmaOverlayView.Line.EMA50)
@@ -44,6 +102,6 @@ class ModeMenuPanel(context:Context,private val overlay:BbmaOverlayView):FrameLa
    }
   }
   overlay.setVisibleLines(selected)
-  listOf(state.enabled,state.showBands,state.showEma50,state.showLwma5,state.showLwma10).forEachIndexed{index,value->(panel.getChildAt(index) as CheckBox).isChecked=value}
+  listOf(state.enabled,state.showBands,state.showEma50,state.showLwma5,state.showLwma10).forEachIndexed { index,value -> (options.getChildAt(index) as CheckBox).isChecked=value }
  }
 }
