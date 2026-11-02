@@ -10,6 +10,6 @@ fun main(){
  check(ZoneResearchPipeline.render(selection,series,3*m,viewport).isEmpty())
  check(ZoneResearchPipeline.render(selection,series,4*m,viewport).size==1)
  check(ZoneResearchPipeline.render(selection.copy(symbol="GBPUSD"),series,4*m,viewport).isEmpty())
- try {ZoneResearchPipeline.render(selection,mapOf(key to (ZoneTimeframe.H1 to candles)),4*m,viewport);error("Expected mismatch")}catch(_:IllegalArgumentException){}
+ try {ZoneResearchPipeline.render(selection,mapOf(key to (ZoneTimeframe.H1 to candles)),4*m,viewport);throw AssertionError("Expected mismatch")}catch(_:IllegalArgumentException){}
  println("PASS: closed bar cutoff, selected symbol, bounded zones, timeframe mismatch")
 }
