@@ -175,7 +175,7 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
   optionScroll.measure(
    View.MeasureSpec.makeMeasureSpec(desiredWidth,View.MeasureSpec.EXACTLY),
    View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED))
-  val naturalHeight=optionScroll.measuredHeight
+  val naturalHeight=options.measuredHeight.coerceAtLeast(0)
   val targetHeight=if(state.visible) minOf(naturalHeight,availableOptionsHeight) else 0
   if(optionScroll.layoutParams.height!=targetHeight) optionScroll.layoutParams=optionScroll.layoutParams.apply{height=targetHeight}
   if(!restored){
