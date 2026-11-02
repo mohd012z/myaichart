@@ -5,6 +5,11 @@ on:
     paths:
       - 'mt-native-modmenu/**'
       - '.github/workflows/mt5-android-compile.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mt-native-modmenu/**'
+      - '.github/workflows/mt5-android-compile.yml'
   workflow_dispatch:
 permissions:
   contents: read
