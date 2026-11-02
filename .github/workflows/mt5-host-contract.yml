@@ -1,0 +1,27 @@
+name: MT5 chart host contract tests
+on:
+  push:
+    branches: [develop/native-modmenu-v1]
+    paths:
+      - 'mt-native-modmenu/**'
+      - '.github/workflows/mt5-host-contract.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Kotlin compiler
+        run: |
+          curl -fL --retry 3 -o kotlin.zip https://github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip
+          unzip -q kotlin.zip
+      - name: Verify chart host contract
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/ChartProjection.kt mt-native-modmenu/src/ChartHostContract.kt mt-native-modmenu/tests/ChartHostContractTests.kt -include-runtime -d /tmp/host.jar
+          java -jar /tmp/host.jar
