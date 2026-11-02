@@ -12,7 +12,7 @@ fun main(){
  check(AlignedMultiTimeframeZones.analyze(mapOf(h1 to (ZoneTimeframe.H1 to candles)),4*m).getValue(h1).isEmpty())
  try {
   AlignedMultiTimeframeZones.analyze(mapOf(ZoneKey("EURUSD","H1") to (ZoneTimeframe.M1 to candles)),4*m)
-  error("Expected timeframe-key mismatch rejection")
+  throw AssertionError("Expected timeframe-key mismatch rejection")
  } catch(_:IllegalArgumentException) {}
  println("PASS: open-time semantics, strict bar closure, cross-timeframe alignment, no-lookahead")
 }
