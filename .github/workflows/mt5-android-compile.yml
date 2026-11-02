@@ -42,6 +42,8 @@ jobs:
             mt-native-modmenu/src/SymbolCatalog.kt \
             mt-native-modmenu/src/OverlayControls.kt \
             mt-native-modmenu/src/SupplyDemand.kt \
+            mt-native-modmenu/src/ZoneLifecycle.kt \
+            mt-native-modmenu/src/ZoneProjection.kt \
             mt-native-modmenu/src/EconomicCalendar.kt \
             mt-native-modmenu/src/CandleCapture.kt \
             mt-native-modmenu/src/BbmaSymbolSelector.kt \
@@ -83,6 +85,10 @@ jobs:
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/SupplyDemand.kt mt-native-modmenu/tests/SupplyDemandTests.kt -include-runtime -d /tmp/supply-demand.jar
           java -jar /tmp/supply-demand.jar
+      - name: Verify supply demand zone replay and projection
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/ChartProjection.kt mt-native-modmenu/src/SupplyDemand.kt mt-native-modmenu/src/ZoneLifecycle.kt mt-native-modmenu/src/ZoneProjection.kt mt-native-modmenu/tests/ZoneProjectionTests.kt -include-runtime -d /tmp/zone-replay.jar
+          java -jar /tmp/zone-replay.jar
       - name: Run pure Kotlin regression tests
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/tests/IndicatorTests.kt -include-runtime -d /tmp/indicators.jar
