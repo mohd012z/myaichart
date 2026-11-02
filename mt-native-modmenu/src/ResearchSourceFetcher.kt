@@ -4,8 +4,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** One-shot, user-initiated read-only fetch. Never follows redirects or stores credentials. */
+data class FetchedSource(val url:String,val retrievedAtMs:Long,val body:String,val contentType:String)
 object ResearchSourceFetcher {
- fun fetch(url:String,nowMs:Long,maxBytes:Int=131072):ResearchDocument {
+ fun fetch(url:String,nowMs:Long,maxBytes:Int=131072):FetchedSource {
+  check(android.os.Looper.myLooper()!=android.os.Looper.getMainLooper()){"Network fetch must not run on Android UI thread"}
   require(maxBytes in 1024..262144)
   val candidate=ResearchDocument(url,"official source",nowMs,nowMs,"pending","unclassified")
   require(ResearchEvidenceGate.validate(listOf(candidate),nowMs).accepted.size==1){"URL not approved"}
@@ -33,7 +35,7 @@ object ResearchSourceFetcher {
    }
    val text=bytes.toString(Charsets.UTF_8)
    require(text.isNotBlank())
-   return candidate.copy(text=text,category=contentType)
+   return FetchedSource(url,nowMs,text,contentType)
   } finally { connection.disconnect() }
  }
 }
