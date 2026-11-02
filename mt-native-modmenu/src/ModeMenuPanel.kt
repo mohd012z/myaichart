@@ -11,6 +11,7 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 
 /** Host-owned floating controls. Parent must be an independently verified chart ViewGroup. */
 class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): FrameLayout(context) {
@@ -27,6 +28,7 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): Fra
   orientation=LinearLayout.VERTICAL
   setPadding(dp(12),dp(4),dp(12),dp(10))
  }
+ private val optionScroll=ScrollView(context).apply { isFillViewport=false; addView(options) }
  private var userMoved=false
  private var savedX=0f
  private var savedY=0f
@@ -80,7 +82,7 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): Fra
    }
    options.addView(cb,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   }
-  floating.addView(options,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
+  floating.addView(optionScroll,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   addView(floating,LayoutParams(dp(240),ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.TOP or Gravity.START))
   refresh()
   addOnLayoutChangeListener { _,_,_,_,_,_,_,_,_ -> reposition() }
@@ -99,8 +101,8 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): Fra
   val params=floating.layoutParams
   if(params.width!=desiredWidth){params.width=desiredWidth;floating.layoutParams=params;floating.post{reposition()};return}
   val maximumHeight=(height-dp(16)).coerceAtLeast(0)
-  options.layoutParams=options.layoutParams.apply { height=if(state.visible) (maximumHeight-dp(48)).coerceAtLeast(0) else 0 }
-  options.isVerticalScrollBarEnabled=true
+  val availableOptionsHeight=(maximumHeight-dp(48)).coerceAtLeast(0)
+  optionScroll.layoutParams=optionScroll.layoutParams.apply { height=if(state.visible) availableOptionsHeight else 0 }
   if(!restored){
    restored=true
    val saved=MenuSavedState(preferences.getFloat("x",1f),preferences.getFloat("y",0f),state.visible)
@@ -114,7 +116,7 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): Fra
   floating.post { reposition() }
  }
  private fun refresh(){
-  options.visibility=if(state.visible) VISIBLE else GONE
+  optionScroll.visibility=if(state.visible) VISIBLE else GONE
   header.contentDescription=if(state.visible)"BBMA options expanded. Drag to move" else "BBMA options collapsed. Drag to move"
   val selected=buildSet {
    if(state.enabled){
