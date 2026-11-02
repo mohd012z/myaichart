@@ -40,6 +40,8 @@ jobs:
             mt-native-modmenu/src/FundamentalResearch.kt \
             mt-native-modmenu/src/ResearchEvidenceGate.kt \
             mt-native-modmenu/src/ChartScreenshotCapture.kt \
+            mt-native-modmenu/src/ScreenshotPreview.kt \
+            mt-native-modmenu/src/ResearchSourceFetcher.kt \
             mt-native-modmenu/src/ModeMenuPanel.kt \
             -d /tmp/mt5-bbma-android-classes.jar
       - name: Verify menu placement
