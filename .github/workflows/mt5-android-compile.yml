@@ -38,6 +38,7 @@ jobs:
             mt-native-modmenu/src/MenuPlacement.kt \
             mt-native-modmenu/src/ResponsiveMenu.kt \
             mt-native-modmenu/src/FundamentalResearch.kt \
+            mt-native-modmenu/src/PolicyLanguage.kt \
             mt-native-modmenu/src/ResearchEvidenceGate.kt \
             mt-native-modmenu/src/ChartScreenshotCapture.kt \
             mt-native-modmenu/src/ScreenshotPreview.kt \
@@ -60,6 +61,10 @@ jobs:
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/ResearchEvidenceGate.kt mt-native-modmenu/tests/ResearchEvidenceGateTests.kt -include-runtime -d /tmp/research-evidence.jar
           java -jar /tmp/research-evidence.jar
+      - name: Verify policy language negation
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/FundamentalResearch.kt mt-native-modmenu/src/PolicyLanguage.kt mt-native-modmenu/tests/PolicyLanguageTests.kt -include-runtime -d /tmp/policy-language.jar
+          java -jar /tmp/policy-language.jar
       - name: Run pure Kotlin regression tests
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/tests/IndicatorTests.kt -include-runtime -d /tmp/indicators.jar
