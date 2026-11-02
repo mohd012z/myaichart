@@ -11,6 +11,6 @@ fun main(){
  check(cache.get(key,1400)==null)
  cache.invalidate(key)
  check(cache.get(key,1300)==null)
- try {MultiTimeframeZones.analyze(mapOf(key to candles),1200);error("Expected future-candle rejection")}catch(_:IllegalArgumentException){}
+ try {MultiTimeframeZones.analyze(mapOf(key to candles),1200);throw AssertionError("Expected future-candle rejection")}catch(_:IllegalArgumentException){}
  println("PASS: timeframe isolation, cache invalidation, future-candle rejection")
 }
