@@ -12,6 +12,7 @@ import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.SeekBar
 
 /** Host-owned floating controls. Parent must be an independently verified chart ViewGroup. */
 class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, private val onScreenshotRequested: (() -> Unit)? = null): FrameLayout(context) {
@@ -29,6 +30,11 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
   setPadding(dp(12),dp(4),dp(12),dp(10))
  }
  private val optionScroll=ScrollView(context).apply { isFillViewport=false; addView(options) }
+ private var overlaySettings=OverlaySettings(
+  enabled=OverlayLayer.values().filter{preferences.getBoolean("layer_"+it.name,it==OverlayLayer.BBMA_DASHBOARD)}.toSet(),
+  opacity=preferences.getInt("opacity",90).coerceIn(10,100),
+  scalePercent=preferences.getInt("scale",100).coerceIn(50,200))
+ private val layerChecks=mutableMapOf<OverlayLayer,CheckBox>()
  private var userMoved=false
  private var savedX=0f
  private var savedY=0f
@@ -82,6 +88,43 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
    }
    options.addView(cb,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   }
+  OverlayLayer.values().forEach { layer ->
+   val check=CheckBox(context).apply {
+    text=layer.name.replace('_',' ').lowercase().replaceFirstChar{it.uppercase()}
+    setTextColor(Color.WHITE);minHeight=dp(44)
+    isChecked=layer in overlaySettings.enabled
+    setOnClickListener {
+     overlaySettings=overlaySettings.toggle(layer)
+     preferences.edit().putBoolean("layer_"+layer.name,layer in overlaySettings.enabled).apply()
+     updateOverlayAppearance()
+    }
+   }
+   layerChecks[layer]=check
+   options.addView(check,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)))
+  }
+  fun addSlider(title:String,min:Int,max:Int,current:Int,onValue:(Int)->Unit){
+   val label=android.widget.TextView(context).apply{text=title;setTextColor(Color.WHITE);setPadding(dp(8),dp(4),0,0)}
+   options.addView(label)
+   options.addView(SeekBar(context).apply{
+    this.max=max-min;progress=current-min
+    contentDescription=title
+    setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
+     override fun onProgressChanged(seek:SeekBar?,progress:Int,fromUser:Boolean){if(fromUser)onValue(progress+min)}
+     override fun onStartTrackingTouch(seek:SeekBar?){}
+     override fun onStopTrackingTouch(seek:SeekBar?){}
+    })
+   },LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)))
+  }
+  addSlider("Overlay opacity",10,100,overlaySettings.opacity){
+   overlaySettings=overlaySettings.adjust(opacity=it)
+   preferences.edit().putInt("opacity",overlaySettings.opacity).apply()
+   updateOverlayAppearance()
+  }
+  addSlider("Menu size",50,200,overlaySettings.scalePercent){
+   overlaySettings=overlaySettings.adjust(scalePercent=it)
+   preferences.edit().putInt("scale",overlaySettings.scalePercent).apply()
+   floating.post{reposition()}
+  }
   val screenshot=Button(context).apply {
    text="Screenshot · Review"
    setAllCaps(false)
@@ -105,7 +148,13 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
   floating.addView(optionScroll,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT))
   addView(floating,LayoutParams(dp(240),ViewGroup.LayoutParams.WRAP_CONTENT,Gravity.TOP or Gravity.START))
   refresh()
+  updateOverlayAppearance()
   addOnLayoutChangeListener { _,_,_,_,_,_,_,_,_ -> reposition() }
+ }
+ private fun updateOverlayAppearance(){
+  floating.alpha=overlaySettings.opacity/100f
+  layerChecks.forEach{(layer,check)->check.isChecked=layer in overlaySettings.enabled}
+  // Non-BBMA layers require their own validated renderer; toggles only store visibility intent.
  }
  private fun moveTo(x:Float,y:Float) {
   val p=ResponsiveMenu.place(MenuBounds(width,height),MenuBounds(floating.width,floating.height),x,y)
@@ -117,12 +166,18 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
  }
  private fun reposition(){
   if(width<=0||height<=0)return
-  val desiredWidth=ResponsiveMenu.size(MenuBounds(width,height),dp(240),height,dp(8)).width
+  val desiredWidth=ResponsiveMenu.size(MenuBounds(width,height),dp(240)*overlaySettings.scalePercent/100,height,dp(8)).width
   val params=floating.layoutParams
   if(params.width!=desiredWidth){params.width=desiredWidth;floating.layoutParams=params;floating.post{reposition()};return}
   val maximumHeight=(height-dp(16)).coerceAtLeast(0)
   val availableOptionsHeight=(maximumHeight-dp(48)).coerceAtLeast(0)
-  optionScroll.layoutParams=optionScroll.layoutParams.apply { height=if(state.visible) availableOptionsHeight else 0 }
+  // Cap content to viewport; do not force short menus to cover the chart.
+  optionScroll.measure(
+   View.MeasureSpec.makeMeasureSpec(desiredWidth,View.MeasureSpec.EXACTLY),
+   View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED))
+  val naturalHeight=optionScroll.measuredHeight
+  val targetHeight=if(state.visible) minOf(naturalHeight,availableOptionsHeight) else 0
+  if(optionScroll.layoutParams.height!=targetHeight) optionScroll.layoutParams=optionScroll.layoutParams.apply{height=targetHeight}
   if(!restored){
    restored=true
    val saved=MenuSavedState(preferences.getFloat("x",1f),preferences.getFloat("y",0f),state.visible)
