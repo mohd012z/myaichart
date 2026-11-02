@@ -13,9 +13,12 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
+import android.widget.Spinner
+import android.widget.ArrayAdapter
+import android.widget.AdapterView
 
 /** Host-owned floating controls. Parent must be an independently verified chart ViewGroup. */
-class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, private val onScreenshotRequested: (() -> Unit)? = null, private val zoneOverlay: SupplyDemandOverlayView? = null): FrameLayout(context) {
+class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, private val onScreenshotRequested: (() -> Unit)? = null, private val zoneOverlay: SupplyDemandOverlayView? = null, availableSymbols:List<String> = listOf("EURUSD","XAUUSD"), private val onZoneSelection:((ZoneSelection)->Unit)?=null): FrameLayout(context) {
  private val preferences=context.getSharedPreferences("mt_bbma_mode_menu",Context.MODE_PRIVATE)
  private var state=ModeMenuState(visible=preferences.getBoolean("expanded",false))
  private val density=resources.displayMetrics.density
@@ -35,6 +38,15 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
   opacity=preferences.getInt("opacity",90).coerceIn(10,100),
   scalePercent=preferences.getInt("scale",100).coerceIn(50,200))
  private val layerChecks=mutableMapOf<OverlayLayer,CheckBox>()
+ private val symbolOptions=SymbolCatalog.options(availableSymbols).map{it.code}.ifEmpty{listOf("EURUSD")}
+ private var zoneSelection=ZoneSelectionPolicy.create(
+  preferences.getString("zone_symbol",symbolOptions.first())?.takeIf{it in symbolOptions}?:symbolOptions.first(),
+  ZoneTimeframe.values().firstOrNull{it.name==preferences.getString("zone_tf","M15")}?:ZoneTimeframe.M15,
+  preferences.getInt("zone_count",12))
+ private fun saveZoneSelection(){
+  preferences.edit().putString("zone_symbol",zoneSelection.symbol).putString("zone_tf",zoneSelection.timeframe.name).putInt("zone_count",zoneSelection.maxVisible).apply()
+  onZoneSelection?.invoke(zoneSelection)
+ }
  private var userMoved=false
  private var savedX=0f
  private var savedY=0f
@@ -102,6 +114,23 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
    layerChecks[layer]=check
    options.addView(check,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)))
   }
+  fun addChoice(label:String,values:List<String>,selected:String,onSelected:(String)->Unit){
+   options.addView(android.widget.TextView(context).apply{text=label;setTextColor(Color.WHITE)})
+   val spinner=Spinner(context)
+   spinner.adapter=ArrayAdapter(context,android.R.layout.simple_spinner_dropdown_item,values)
+   spinner.setSelection(values.indexOf(selected).coerceAtLeast(0))
+   spinner.onItemSelectedListener=object:AdapterView.OnItemSelectedListener{
+    override fun onNothingSelected(parent:AdapterView<*>?){}
+    override fun onItemSelected(parent:AdapterView<*>?,view:View?,position:Int,id:Long){values.getOrNull(position)?.let(onSelected)}
+   }
+   options.addView(spinner,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)))
+  }
+  addChoice("Zone symbol",symbolOptions,zoneSelection.symbol){
+   zoneSelection=zoneSelection.copy(symbol=it);saveZoneSelection()
+  }
+  addChoice("Zone timeframe",ZoneTimeframe.values().map{it.name},zoneSelection.timeframe.name){
+   zoneSelection=zoneSelection.copy(timeframe=ZoneTimeframe.valueOf(it));saveZoneSelection()
+  }
   fun addSlider(title:String,min:Int,max:Int,current:Int,onValue:(Int)->Unit){
    val label=android.widget.TextView(context).apply{text=title;setTextColor(Color.WHITE);setPadding(dp(8),dp(4),0,0)}
    options.addView(label)
@@ -114,6 +143,9 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView, priv
      override fun onStopTrackingTouch(seek:SeekBar?){}
     })
    },LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,dp(48)))
+  }
+  addSlider("Maximum visible zones",1,100,zoneSelection.maxVisible){
+   zoneSelection=zoneSelection.copy(maxVisible=it);saveZoneSelection()
   }
   addSlider("Overlay opacity",10,100,overlaySettings.opacity){
    overlaySettings=overlaySettings.adjust(opacity=it)
