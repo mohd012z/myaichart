@@ -36,12 +36,17 @@ jobs:
             mt-native-modmenu/src/HunterChartOverlay.kt \
             mt-native-modmenu/src/ModeMenuState.kt \
             mt-native-modmenu/src/MenuPlacement.kt \
+            mt-native-modmenu/src/ResponsiveMenu.kt \
             mt-native-modmenu/src/ModeMenuPanel.kt \
             -d /tmp/mt5-bbma-android-classes.jar
       - name: Verify menu placement
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/MenuPlacement.kt mt-native-modmenu/tests/MenuPlacementTests.kt -include-runtime -d /tmp/menu-placement.jar
           java -jar /tmp/menu-placement.jar
+      - name: Verify responsive menu and persistence geometry
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/ResponsiveMenu.kt mt-native-modmenu/tests/ResponsiveMenuTests.kt -include-runtime -d /tmp/responsive-menu.jar
+          java -jar /tmp/responsive-menu.jar
       - name: Run pure Kotlin regression tests
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/tests/IndicatorTests.kt -include-runtime -d /tmp/indicators.jar
