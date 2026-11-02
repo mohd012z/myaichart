@@ -8,7 +8,7 @@ object CandleCapture {
   require(timeframe.isNotBlank()&&timeframe.length<=16)
   require(candles.isNotEmpty()&&candles.size<=limit)
   // This validates ordering without assuming the MT5 renderer exposes OHLC history.
-  val times=candles.map{it.time}
+  val times=candles.map{it.timeMillis}
   require(times.zipWithNext().all{(a,b)->a<b}){"Candles must be strictly increasing"}
   return CandleSnapshot(normalized,timeframe,candles.toList(),times.first(),times.last())
  }
