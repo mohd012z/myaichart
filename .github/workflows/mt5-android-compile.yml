@@ -91,6 +91,10 @@ jobs:
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/ChartProjection.kt mt-native-modmenu/src/SupplyDemand.kt mt-native-modmenu/src/ZoneLifecycle.kt mt-native-modmenu/src/ZoneProjection.kt mt-native-modmenu/tests/ZoneProjectionTests.kt -include-runtime -d /tmp/zone-replay.jar
           java -jar /tmp/zone-replay.jar
+      - name: Verify multi-timeframe cache and no-lookahead
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/SupplyDemand.kt mt-native-modmenu/src/ZoneLifecycle.kt mt-native-modmenu/src/MultiTimeframeZones.kt mt-native-modmenu/tests/MultiTimeframeZonesTests.kt -include-runtime -d /tmp/multi-timeframe-zones.jar
+          java -jar /tmp/multi-timeframe-zones.jar
       - name: Run pure Kotlin regression tests
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/tests/IndicatorTests.kt -include-runtime -d /tmp/indicators.jar
