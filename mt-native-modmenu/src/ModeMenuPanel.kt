@@ -6,6 +6,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.FrameLayout
@@ -13,7 +14,8 @@ import android.widget.LinearLayout
 
 /** Host-owned floating controls. Parent must be an independently verified chart ViewGroup. */
 class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): FrameLayout(context) {
- private var state=ModeMenuState()
+ private val preferences=context.getSharedPreferences("mt_bbma_mode_menu",Context.MODE_PRIVATE)
+ private var state=ModeMenuState(visible=preferences.getBoolean("expanded",false))
  private val density=resources.displayMetrics.density
  private fun dp(value:Int)=(value*density+0.5f).toInt()
  private val floating=LinearLayout(context).apply {
@@ -33,25 +35,33 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): Fra
  private var startX=0f
  private var startY=0f
  private var dragging=false
+ private val touchSlop=ViewConfiguration.get(context).scaledTouchSlop
+ private var restored=false
  private val header=Button(context).apply {
   text="☰ BBMA · Drag"
-  setAllCaps(false)
-  setOnClickListener { if(!dragging) dispatch(ModeMenuReducer.Action.TOGGLE_MENU) }
+  isAllCaps=false
   setOnTouchListener { _:View,event:MotionEvent ->
    when(event.actionMasked) {
-    MotionEvent.ACTION_DOWN -> {downRawX=event.rawX;downRawY=event.rawY;startX=floating.x;startY=floating.y;dragging=false;false}
+    MotionEvent.ACTION_DOWN -> {
+     downRawX=event.rawX;downRawY=event.rawY;startX=floating.x;startY=floating.y;dragging=false
+     true
+    }
     MotionEvent.ACTION_MOVE -> {
      val dx=event.rawX-downRawX;val dy=event.rawY-downRawY
-     if(!dragging && (kotlin.math.abs(dx)>dp(8)||kotlin.math.abs(dy)>dp(8))) dragging=true
-     if(dragging){moveTo(startX+dx,startY+dy);true}else false
+     if(!dragging && (kotlin.math.abs(dx)>touchSlop||kotlin.math.abs(dy)>touchSlop))dragging=true
+     if(dragging)moveTo(startX+dx,startY+dy)
+     true
     }
     MotionEvent.ACTION_UP -> {
-     if(dragging){dragging=false;userMoved=true;true}else false
+     if(dragging){userMoved=true;savePosition()} else performClick()
+     dragging=false
+     true
     }
-    MotionEvent.ACTION_CANCEL -> {dragging=false;false}
+    MotionEvent.ACTION_CANCEL -> {dragging=false;true}
     else -> false
    }
   }
+  setOnClickListener { dispatch(ModeMenuReducer.Action.TOGGLE_MENU) }
  }
  init {
   clipChildren=false
@@ -76,18 +86,31 @@ class ModeMenuPanel(context: Context, private val overlay: BbmaOverlayView): Fra
   addOnLayoutChangeListener { _,_,_,_,_,_,_,_,_ -> reposition() }
  }
  private fun moveTo(x:Float,y:Float) {
-  val p=MenuPlacement.clamp(x,y,floating.width,floating.height,width,height)
+  val p=ResponsiveMenu.place(MenuBounds(width,height),MenuBounds(floating.width,floating.height),x,y)
   savedX=p.x;savedY=p.y;floating.x=p.x;floating.y=p.y
+ }
+ private fun savePosition(){
+  val saved=ResponsiveMenu.save(MenuBounds(width,height),MenuGeometry(floating.x,floating.y,floating.width,floating.height),state.visible)
+  preferences.edit().putFloat("x",saved.xFraction).putFloat("y",saved.yFraction).putBoolean("expanded",state.visible).apply()
  }
  private fun reposition(){
   if(width<=0||height<=0)return
-  if(!userMoved){
-   val p=MenuPlacement.default(floating.width,floating.height,width,height,dp(12))
+  val desiredWidth=ResponsiveMenu.size(MenuBounds(width,height),dp(240),height,dp(8)).width
+  val params=floating.layoutParams
+  if(params.width!=desiredWidth){params.width=desiredWidth;floating.layoutParams=params;floating.post{reposition()};return}
+  val maximumHeight=(height-dp(16)).coerceAtLeast(0)
+  options.layoutParams=options.layoutParams.apply { height=if(state.visible) (maximumHeight-dp(48)).coerceAtLeast(0) else 0 }
+  options.isVerticalScrollBarEnabled=true
+  if(!restored){
+   restored=true
+   val saved=MenuSavedState(preferences.getFloat("x",1f),preferences.getFloat("y",0f),state.visible)
+   val p=ResponsiveMenu.restore(MenuBounds(width,height),MenuBounds(floating.width,floating.height),saved)
    moveTo(p.x,p.y)
   } else moveTo(savedX,savedY)
  }
  private fun dispatch(action:ModeMenuReducer.Action){
   state=ModeMenuReducer.apply(state,action);refresh()
+  preferences.edit().putBoolean("expanded",state.visible).apply()
   floating.post { reposition() }
  }
  private fun refresh(){
