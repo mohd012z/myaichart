@@ -38,6 +38,8 @@ jobs:
             mt-native-modmenu/src/MenuPlacement.kt \
             mt-native-modmenu/src/ResponsiveMenu.kt \
             mt-native-modmenu/src/FundamentalResearch.kt \
+            mt-native-modmenu/src/ResearchEvidenceGate.kt \
+            mt-native-modmenu/src/ChartScreenshotCapture.kt \
             mt-native-modmenu/src/ModeMenuPanel.kt \
             -d /tmp/mt5-bbma-android-classes.jar
       - name: Verify menu placement
@@ -52,6 +54,10 @@ jobs:
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/FundamentalResearch.kt mt-native-modmenu/tests/FundamentalResearchTests.kt -include-runtime -d /tmp/fundamental.jar
           java -jar /tmp/fundamental.jar
+      - name: Validate official-source evidence
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/ResearchEvidenceGate.kt mt-native-modmenu/tests/ResearchEvidenceGateTests.kt -include-runtime -d /tmp/research-evidence.jar
+          java -jar /tmp/research-evidence.jar
       - name: Run pure Kotlin regression tests
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/Indicators.kt mt-native-modmenu/tests/IndicatorTests.kt -include-runtime -d /tmp/indicators.jar
