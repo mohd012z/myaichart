@@ -9,7 +9,7 @@ data class Candle(val timeMillis: Long, val open: Double, val high: Double, val 
     }
 }
 data class Bands(val middle: Double, val upper: Double, val lower: Double)
-data class BbmaPoint(val timeMillis: Long, val bands: Bands?, val ema50: Double?, val lwma5High: Double?, val lwma5Low: Double?, val lwma10High: Double?, val lwma10Low: Double)
+data class BbmaPoint(val timeMillis: Long, val bands: Bands?, val ema50: Double?, val lwma5High: Double?, val lwma5Low: Double?, val lwma10High: Double?, val lwma10Low: Double?)
 object Indicators {
     fun sma(a: List<Double>, period: Int): List<Double?> {
         require(period > 0)

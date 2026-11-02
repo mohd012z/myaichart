@@ -9,6 +9,10 @@ fun main(){
  val b=Indicators.bands(List(20){10.0});eq(b[19]!!.upper,10.0);eq(b[19]!!.lower,10.0)
  val candles=(0 until 60).map{Candle(it.toLong()*60000,10.0,12.0,8.0,10.0)}
  val out=Indicators.bbma(candles);check(out.size==60);check(out[18].bands==null);check(out[19].bands!=null);check(out[48].ema50==null);eq(out[49].ema50!!,10.0)
+ check(out.take(4).all { it.lwma5High == null && it.lwma5Low == null })
+ check(out.take(9).all { it.lwma10High == null && it.lwma10Low == null })
+ eq(out[4].lwma5High!!,12.0);eq(out[4].lwma5Low!!,8.0)
+ eq(out[9].lwma10High!!,12.0);eq(out[9].lwma10Low!!,8.0)
  val fib=Fibonacci.levels(100.0,200.0);eq(fib.first().price,200.0);eq(fib[4].price,138.2)
  try{Indicators.bbma(candles.reversed());error("unsorted candles accepted")}catch(_:IllegalArgumentException){}
  println("PASS: SMA LWMA EMA BBANDS BBMA warmup Fibonacci ordering validation")
