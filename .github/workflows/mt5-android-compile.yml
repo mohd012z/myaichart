@@ -36,6 +36,7 @@ jobs:
           ./kotlinc/bin/kotlinc -classpath "$ANDROID_HOME/platforms/android-35/android.jar" \
             mt-native-modmenu/src/Indicators.kt \
             mt-native-modmenu/src/ChartProjection.kt \
+            mt-native-modmenu/src/ChartCalibrationGate.kt \
             mt-native-modmenu/src/ChartHostContract.kt \
             mt-native-modmenu/src/BbmaOverlayView.kt \
             mt-native-modmenu/src/HunterChartOverlay.kt \
@@ -64,6 +65,10 @@ jobs:
             mt-native-modmenu/src/ResearchSourceFetcher.kt \
             mt-native-modmenu/src/ModeMenuPanel.kt \
             -d /tmp/mt5-bbma-android-classes.jar
+      - name: Verify external chart capture calibration
+        run: |
+          ./kotlinc/bin/kotlinc mt-native-modmenu/src/ChartProjection.kt mt-native-modmenu/src/SymbolCatalog.kt mt-native-modmenu/src/ClosedBarAlignment.kt mt-native-modmenu/src/Indicators.kt mt-native-modmenu/src/SupplyDemand.kt mt-native-modmenu/src/ZoneLifecycle.kt mt-native-modmenu/src/MultiTimeframeZones.kt mt-native-modmenu/src/ChartCalibrationGate.kt mt-native-modmenu/tests/ChartCalibrationGateTests.kt -include-runtime -d /tmp/chart-calibration.jar
+          java -jar /tmp/chart-calibration.jar
       - name: Verify menu placement
         run: |
           ./kotlinc/bin/kotlinc mt-native-modmenu/src/MenuPlacement.kt mt-native-modmenu/tests/MenuPlacementTests.kt -include-runtime -d /tmp/menu-placement.jar
