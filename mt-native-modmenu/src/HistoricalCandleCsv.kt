@@ -25,7 +25,7 @@ object HistoricalCandleCsv {
     fun export(rows:List<HistoricalCandleRow>, asOfMs:Long, maxRows:Int=100000):String {
         require(asOfMs >= 0 && maxRows in 1..1000000 && rows.size <= maxRows)
         val seen=HashSet<String>()
-        val out=StringBuilder("symbol,timeframe,open_time_ms,close_time_ms,open,high,low,close,source\\n".replace("\\n","\n"))
+        val out=StringBuilder("symbol,timeframe,open_time_ms,close_time_ms,open,high,low,close,source\n")
         for(row in rows) {
             val closeTime=Math.addExact(row.openTimeMs,row.timeframe.durationMs)
             require(closeTime <= asOfMs) { "Open or future candle rejected" }
