@@ -26,6 +26,11 @@ jobs:
         run: |
           echo y | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35'
+      - name: Verify original APK when explicitly supplied
+        if: ${{ hashFiles('mt-native-modmenu/fixtures/original-mt5.apk') != '' }}
+        run: |
+          python3 mt-native-modmenu/tools/verify_original_apk.py mt-native-modmenu/fixtures/original-mt5.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs mt-native-modmenu/fixtures/original-mt5.apk
       - name: Install pinned Android Build Tools 35.0.0
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
