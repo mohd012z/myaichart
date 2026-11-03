@@ -26,6 +26,10 @@ jobs:
         run: |
           echo y | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35'
+      - name: Install pinned Android Build Tools 35.0.0
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
+          BUILD_TOOLS_VERSION=35.0.0 bash mt-native-modmenu/tools/verify_android_sdk.sh
       - name: Validate fail-closed clone signing script
         run: |
           bash -n mt-native-modmenu/tools/sign_verify_clone.sh
