@@ -35,6 +35,17 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0'
           BUILD_TOOLS_VERSION=35.0.0 bash mt-native-modmenu/tools/verify_android_sdk.sh
+      - name: Build standalone offline research APK
+        run: |
+          bash -n mt-native-modmenu/standalone/build.sh
+          bash mt-native-modmenu/standalone/build.sh /tmp/msa-research-build
+      - name: Upload standalone research APK (not MetaTrader clone)
+        uses: actions/upload-artifact@v4
+        with:
+          name: msa-chart-research-standalone-apk
+          path: /tmp/msa-research-build/msa-chart-research.apk
+          if-no-files-found: error
+          retention-days: 7
       - name: Validate fail-closed clone signing script
         run: |
           bash -n mt-native-modmenu/tools/sign_verify_clone.sh
