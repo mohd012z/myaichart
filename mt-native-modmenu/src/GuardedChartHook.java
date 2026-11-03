@@ -87,6 +87,13 @@ public final class GuardedChartHook {
         bridge.detach();
     }
 
+    /** Must be invoked from the owning Activity on destruction. */
+    public void onHostDestroyed() {
+        mainThread();
+        enabled = false;
+        detach();
+    }
+
     public boolean isAttached() { return bridge.isAttached(); }
 
     private static void mainThread() {
