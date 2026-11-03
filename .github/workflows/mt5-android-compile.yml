@@ -29,6 +29,7 @@ jobs:
       - name: Test clone manifest identity and collision gate
         run: |
           python3 -m unittest discover -s mt-native-modmenu/tools -p 'test_clone_manifest_audit.py' -v
+          python3 -m unittest discover -s mt-native-modmenu/tools -p 'test_clone_manifest_rewrite.py' -v
       - name: Compile in-app ModeMenu Java source
         run: |
           mkdir -p /tmp/mt5-modmenu-java
