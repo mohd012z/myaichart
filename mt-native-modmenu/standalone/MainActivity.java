@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.graphics.Color;
 import android.view.Gravity;
+import android.view.View;
+import android.view.WindowInsets;
+import android.os.Build;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import mt.nativeaddon.Mt5ResearchMenu;
@@ -28,6 +31,13 @@ public final class MainActivity extends Activity implements Mt5ResearchMenu.List
         status.setPadding(24, 12, 24, 32);
         FrameLayout.LayoutParams bottom = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         root.addView(status, bottom);
+        // Keep the app's own content outside status/navigation bars on Android 9–16.
+        // Insets are applied to the root rather than individual controls.
+        root.setFitsSystemWindows(true);
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(true);
+        }
+        getWindow().getDecorView().setSystemUiVisibility(0);
         setContentView(root);
         menu = new Mt5ResearchMenu(this, this);
         menu.attach(root);
