@@ -15,8 +15,7 @@ javac -source 8 -target 8 -classpath "$SDK/platforms/android-35/android.jar" -d 
   $(find "$OUT/classes" -name '*.class' -type f)
 "$BT/aapt2" link -o "$OUT/unsigned.apk" -I "$SDK/platforms/android-35/android.jar" \
   --manifest "$ROOT/mt-native-modmenu/standalone/AndroidManifest.xml" --min-sdk-version 28 --target-sdk-version 35
-(cd "$OUT/dex" && zip -q -u "$OUT/unsigned.apk" classes.dex) 2>/dev/null || \
-  "$BT/aapt" add "$OUT/unsigned.apk" "$OUT/dex/classes.dex"
+(cd "$OUT/dex" && zip -q -u "$OUT/unsigned.apk" classes.dex)
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 KEY="$OUT/test-signing.p12"
 if [[ ! -f "$KEY" ]]; then
