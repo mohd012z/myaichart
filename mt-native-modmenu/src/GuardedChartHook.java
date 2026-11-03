@@ -18,6 +18,8 @@ public final class GuardedChartHook {
     private View observed;
     private View.OnAttachStateChangeListener listener;
     private boolean enabled;
+    private int attachedChartId = -1;
+    private long attachedRevision = -1L;
 
     public GuardedChartHook(Activity activity, Mt5ResearchMenu.Listener callback) {
         if (activity == null || callback == null)
@@ -45,7 +47,8 @@ public final class GuardedChartHook {
                 || !(chart.getParent() instanceof FrameLayout)
                 || chart.getContext() != activity)
             return Result.SOFT_SKIPPED;
-        if (observed == chart && bridge.isAttached())
+        if (observed == chart && bridge.isAttached()
+                && attachedChartId == chartId && attachedRevision == viewportRevision)
             return Result.ALREADY_ATTACHED;
         detach();
         try {
@@ -55,6 +58,8 @@ public final class GuardedChartHook {
             return Result.SOFT_SKIPPED;
         }
         observed = chart;
+        attachedChartId = chartId;
+        attachedRevision = viewportRevision;
         listener = new View.OnAttachStateChangeListener() {
             @Override public void onViewAttachedToWindow(View view) { }
             @Override public void onViewDetachedFromWindow(View view) {
@@ -77,6 +82,8 @@ public final class GuardedChartHook {
             observed.removeOnAttachStateChangeListener(listener);
         observed = null;
         listener = null;
+        attachedChartId = -1;
+        attachedRevision = -1L;
         bridge.detach();
     }
 
