@@ -19,13 +19,20 @@ class RewriteTests(unittest.TestCase):
             src.write_text(XML)
             rewrite(src,dst)
             result=audit(src,dst,NEW)
-            self.assertTrue(result["passed"],result)
+            self.assertFalse(result["passed"],result)
+            self.assertIn('PROVIDER_AUTHORITY_COLLISION:third.party',result['errors'])
             value=dst.read_text()
             self.assertIn(NEW+".provider;third.party",value)
             self.assertIn(OLD+".MainActivity",value)
             self.assertIn(OLD+".Terminal",value)
             self.assertIn(OLD+".Provider",value)
             self.assertEqual(src.read_text(),XML)
+    def test_unique_provider_authorities_pass(self):
+        with tempfile.TemporaryDirectory() as d:
+            src,dst=Path(d)/'original.xml',Path(d)/'clone.xml'
+            src.write_text(XML.replace(';third.party',''))
+            rewrite(src,dst)
+            self.assertTrue(audit(src,dst,NEW)['passed'])
     def test_refuses_in_place(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/"original.xml";p.write_text(XML)
